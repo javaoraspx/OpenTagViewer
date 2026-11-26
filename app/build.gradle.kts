@@ -24,11 +24,11 @@ secrets {
     defaultPropertiesFileName = "local.defaults.properties"
 }
 
-/** The ABIs every build carries unless asked otherwise. An emulator is the first, a phone the second. */
-val supportedAbis = listOf("arm64-v8a", "x86_64")
+/** The only ABI we ship: arm64-v8a, the one every real phone runs. The x86_64 emulator ABI is excluded. */
+val supportedAbis = listOf("arm64-v8a")
 
 /**
- * `-PotvAbi=x86_64` to build one ABI instead of both. Null when nobody asked.
+ * `-PotvAbi=arm64-v8a` to name the ABI explicitly. Null when nobody asked (the usual case).
  *
  * Validated here rather than passed through: a typo would otherwise produce an APK with no
  * native libraries at all, which installs perfectly happily and then dies at the first Chaquopy
@@ -45,7 +45,7 @@ val requestedAbis: List<String>? = providers.gradleProperty("otvAbi").orNull
 // **A release must never be built with otvAbi set.**
 //
 // `providers.gradleProperty` reads gradle.properties as well as -P, including the one in
-// ~/.gradle. So somebody who tires of typing -PotvAbi=x86_64 and puts it there gets what they
+// ~/.gradle. So somebody who puts -PotvAbi=arm64-v8a there gets what they
 // wanted for every local run, and also a release APK that installs on no phone anybody owns -
 // with nothing to see in the build log, because it succeeded.
 //
@@ -96,8 +96,8 @@ android {
         applicationId = "dev.wander.android.opentagviewer"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.2.0"
+        versionCode = 8
+        versionName = "1.2.1"
 
         // Null unless a build type sets it - see the debug block. A release is built from a tag
         // and its versionName is exactly right, so there is nothing a commit would add; the
@@ -119,19 +119,11 @@ android {
         // installed by a custom runner, not this argument.
 
         ndk {
-            // **65 MB of a 105 MB debug APK is native libraries, and half of it is for an ABI
-            // the target cannot run.** Chaquopy's CPython, cryptography's OpenSSL and Apple's
-            // ADI libraries are all here, twice over. An emulator is x86_64 and a phone is
-            // arm64, so a local install always carries about 32 MB it will never load.
-            //
-            // That is only a papercut until a device runs out of room, and then it is an
-            // INSTALL_FAILED_INSUFFICIENT_STORAGE with nothing in it about ABIs. An upgrade
-            // needs space for the new APK while the old one is still installed, so the real
-            // cost is roughly double.
-            //
-            // `-PotvAbi=x86_64` builds just the one. Opt-in, so CI, releases and anybody who
-            // does not know about it get both, unchanged - a default that silently shipped one
-            // ABI would produce a release that installs on nothing.
+            // Only arm64-v8a goes in. Chaquopy's CPython, cryptography's OpenSSL and Apple's
+            // ADI libraries used to be packed twice - once for arm64 and once for the x86_64
+            // emulator - so about half the native libraries were dead weight on a phone, and a
+            // low-storage device could hit INSTALL_FAILED_INSUFFICIENT_STORAGE on upgrade.
+            // Keeping one ABI halves that cost and is all any real device can use.
             abiFilters += requestedAbis ?: supportedAbis
         }
         externalNativeBuild {
