@@ -79,6 +79,7 @@
 
     <application
         android:name=".OpenAirTagApplication"
+        android:allowNativeHeapPointerTagging="false"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
