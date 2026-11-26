@@ -53,6 +53,30 @@ public final class NearbyTagSightings {
         return sighting;
     }
 
+    /**
+     * Whether any tag has been heard within {@code windowMs} of {@code nowMs}.
+     *
+     * <p>For the map screen's redraw rate: while something is audible the cards have to be
+     * redrawn every second so the pulse dot can light and dim, and once nothing is, one redraw a
+     * minute is enough for the "3 minutes ago" lines. This is what lets that screen tell the
+     * two apart without knowing which tags exist.
+     *
+     * <p><b>The window is the caller's, but 30 seconds - {@link #FRESH_FOR_MS} - is the useful
+     * one.</b> A shorter window would call the screen idle two seconds after the last
+     * advertisement while the cards still say "Nearby" for another twenty-eight, leaving a lit
+     * pulse dot on a tag nobody is listening to any more.
+     *
+     * <p>O(n) over the tags heard this session, which is tens at most, and it runs once a second.
+     */
+    public boolean hasAnyWithin(final long nowMs, final long windowMs) {
+        for (final NearbyTagSighting sighting : this.latestByBeaconId.values()) {
+            if (nowMs - sighting.getSeenAtMs() < windowMs) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Drops everything, for when scanning stops and nothing may keep claiming to be current. */
     public void clear() {
         this.latestByBeaconId.clear();

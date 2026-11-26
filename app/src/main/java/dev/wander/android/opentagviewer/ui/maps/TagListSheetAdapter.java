@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import dev.wander.android.opentagviewer.R;
 import dev.wander.android.opentagviewer.ble.FindMyAdvertisement;
@@ -58,6 +59,38 @@ public class TagListSheetAdapter extends RecyclerView.Adapter<TagListSheetAdapte
             this.age = age;
             this.batteryLevel = batteryLevel;
         }
+
+        /**
+         * 值相等，而不是引用相等。
+         *
+         * <p><b>这是 {@link #submit} 能跳过无谓重绑的前提。</b> 每次重绘都会新建一批 Entry，
+         * 引用永远不同；只有按字段比，才认得出"这一轮和上一轮的内容一样"。比六十个字符串
+         * 引用，比让 RecyclerView 重新绑定所有可见行便宜得多。
+         *
+         * <p>电量是枚举，直接 {@code ==}：枚举常量在每个 JVM 里唯一，且可能是 null。
+         */
+        @Override
+        public boolean equals(final Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof Entry)) {
+                return false;
+            }
+            final Entry that = (Entry) other;
+            return this.batteryLevel == that.batteryLevel
+                    && Objects.equals(this.beaconId, that.beaconId)
+                    && Objects.equals(this.name, that.name)
+                    && Objects.equals(this.emoji, that.emoji)
+                    && Objects.equals(this.address, that.address)
+                    && Objects.equals(this.age, that.age);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.beaconId, this.name, this.emoji,
+                    this.address, this.age, this.batteryLevel);
+        }
     }
 
     public interface OnTagClicked {
@@ -73,7 +106,18 @@ public class TagListSheetAdapter extends RecyclerView.Adapter<TagListSheetAdapte
         setHasStableIds(false);
     }
 
+    /**
+     * 换成新一版行数据。
+     *
+     * <p><b>内容一样就什么都不做。</b> 这个方法由卡片重绘驱动，而重绘是按秒来的；抽屉开着
+     * 的时候每次都 {@code notifyDataSetChanged}，等于让 RecyclerView 把所有可见行重新布局
+     * 一遍，哪怕这几十行一个字都没变 —— 地址不会一秒一变，"3 分钟前"也不会。{@link Entry}
+     * 的值相等比较是这里的判据，见它自己的说明。
+     */
     public void submit(final List<Entry> next) {
+        if (this.entries.equals(next)) {
+            return;
+        }
         this.entries.clear();
         this.entries.addAll(next);
         notifyDataSetChanged();

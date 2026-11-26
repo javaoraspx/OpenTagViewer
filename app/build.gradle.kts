@@ -93,11 +93,24 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.wander.android.opentagviewer"
+        // **Kept distinct from upstream's `dev.wander.android.opentagviewer` on purpose.**
+        //
+        // The applicationId is the app's identity to the system: it names the install, and it
+        // names the private data directory at /data/data/<applicationId>. Sharing upstream's
+        // would make this build an *update* to that app rather than an app of its own, which
+        // fails outright with INSTALL_FAILED_UPDATE_INCOMPATIBLE (signed with a different key)
+        // and, if forced by uninstalling first, takes the user's imported beacons and location
+        // history with it - allowBackup is false, so there is no backup to restore from.
+        //
+        // Under its own id it installs alongside the original and the two cannot touch each
+        // other's data. `namespace` stays at upstream's value below: that is the Java package
+        // the sources and resources already live in, and moving 45 directories and every import
+        // would buy nothing this does not.
+        applicationId = "com.javaoraspx.opentagviewer"
         minSdk = 24
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.2.4"
+        versionCode = 12
+        versionName = "1.2.5"
 
         // Null unless a build type sets it - see the debug block. A release is built from a tag
         // and its versionName is exactly right, so there is nothing a commit would add; the
@@ -281,7 +294,7 @@ android {
             // allowBackup is false, so there is no backup to restore from either.
             //
             // Note: a Maps API key restricted to the release package name will not authorise
-            // this one. Add "dev.wander.android.opentagviewer.debug" (with the debug keystore
+            // this one. Add "com.javaoraspx.opentagviewer.debug" (with the debug keystore
             // SHA-1) to the key's restrictions if you need maps to render in debug builds.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"

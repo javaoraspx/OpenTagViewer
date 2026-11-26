@@ -80,9 +80,11 @@ import dev.wander.android.opentagviewer.ui.error.ErrorReportActivity;
 import dev.wander.android.opentagviewer.db.room.entity.OwnedBeacon;
 import java.util.Locale;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -418,6 +420,27 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
      * first fetch does not sit there looking frozen.
      */
     private static final long SHOW_LONG_FETCH_BANNER_AFTER_MS = 6000L;
+
+    /**
+     * How often the cards are redrawn while nothing is audible nearby.
+     *
+     * <p>The ticker itself stays at 1 Hz - that is what the pulse dot needs - but a full redraw
+     * of every card on every tick was costing about fifteen view operations per tag per second,
+     * with nothing on screen changing between most of them. Nothing audible means the newest
+     * thing any card is saying is "3 minutes ago", which is a lie for at most a minute at this
+     * rate. See {@link #redrawCardsIfWorthIt()}.
+     */
+    private static final long IDLE_CARD_REDRAW_MS = 60_000L;
+
+    /** When the cards were last redrawn. Only touched on the main looper. */
+    private long lastCardRedrawAt = 0L;
+
+    /**
+     * Tags already logged as having no location, so the "no card" line is a state change rather
+     * than a line per redraw. Written from the main looper only, but a set rather than a field
+     * because it holds one entry per such tag.
+     */
+    private final Set<String> loggedWithoutLocation = new HashSet<>();
 
     /** 抽屉列表里一行的高度，与 tag_list_sheet_item.xml 的 minHeight + 上下 padding 对齐。 */
     private static final float SHEET_ROW_HEIGHT_DP = 64f;
@@ -849,7 +872,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
 
         this.nearbyStatusTickerDisposable = Observable
                 .interval(1, TimeUnit.SECONDS, AndroidSchedulers.mainThread())
-                .subscribe(tick -> this.updateBeaconCards());
+                .subscribe(tick -> this.redrawCardsIfWorthIt());
     }
 
     /**
@@ -2898,13 +2921,55 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
         }
     }
 
+    /**
+     * Redraws the cards on the ticker's beat, but only as often as the screen needs it.
+     *
+     * <p><b>While a tag is audible, every second.</b> The pulse dot lights for
+     * {@link #PULSE_WINDOW_MS} after each sighting, so the dot only lights and dims as it should
+     * if the card is redrawn on a one-second beat.
+     *
+     * <p><b>Otherwise, once a minute.</b> Everything the cards then say has minute resolution -
+     * "3 minutes ago", the address, the name, the battery - so a redraw a second was recomputing
+     * the same strings and re-setting the same text on the same views, sixty times over, for a
+     * result nobody could see. On a phone with twenty tags that was 300-odd view calls a second
+     * holding this activity's lock.
+     *
+     * <p>The window is {@link NearbyTagSightings#FRESH_FOR_MS}, not the pulse window: calling
+     * the screen idle one second after the last advertisement would freeze a lit pulse dot on a
+     * tag for the other twenty-nine seconds the cards still call it nearby.
+     *
+     * <p>Only the ticker goes through here. Everything that learns something new - a fetch
+     * completing, the watch ending, a tag being added - calls {@link #updateBeaconCards()}
+     * directly, so no real update is ever held back by this.
+     */
+    private void redrawCardsIfWorthIt() {
+        final long now = System.currentTimeMillis();
+        final boolean audibleNearby =
+                this.nearbySightings.hasAnyWithin(now, NearbyTagSightings.FRESH_FOR_MS);
+
+        if (!audibleNearby && now - this.lastCardRedrawAt < IDLE_CARD_REDRAW_MS) {
+            return;
+        }
+        this.updateBeaconCards();
+    }
+
     private synchronized void updateBeaconCards() {
+        // Any redraw resets the idle clock, including the ones that come from an event rather
+        // than the ticker: what the ticker is deciding is "has anything been drawn lately",
+        // and a fetch that landed two seconds ago answers that as well as a tick would.
+        this.lastCardRedrawAt = System.currentTimeMillis();
+        final long now = this.lastCardRedrawAt;
+
         HorizontalScrollView scrollContainer = this.findViewById(R.id.tags_scrollable_area);
         LinearLayout cardsContainer = this.findViewById(R.id.tags_scroll_container);
 
         // Read once, not per card: it does not change between cards, and BlePermissions.granted
         // is a real permission check, not a field read.
         final boolean canRing = BlePermissions.granted(this);
+
+        // Forget the "no location" note for tags that no longer exist, so the set does not grow
+        // with every tag ever imported. Cheap: it is empty whenever every tag has a position.
+        this.loggedWithoutLocation.retainAll(this.beacons.keySet());
 
         // remove all beacons that had cards that are now gone
         for (var beaconId : this.dynamicCardsForTag.keySet()) {
@@ -2915,8 +2980,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 this.dynamicCardsForTag.remove(beaconId);
             }
         }
-
-        final long now = System.currentTimeMillis();
 
         // **In the order the user arranged, not the order the map happens to hold them in.**
         //
@@ -2947,10 +3010,20 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 // added - there is no card to draw because there is nowhere to draw it, which
                 // is correct rather than a fault. At warning level it sat in every logcat
                 // looking like the cause of whatever else was being investigated.
-                Log.d(TAG, "No locations held for beaconId=" + beaconId + " yet, so it has no card");
+                //
+                // **Once per tag, not once per redraw.** This loop used to sit under a ticker
+                // that ran every second, so a tag with no locations wrote this line - and built
+                // its two concatenated strings to do it - sixty times a minute for as long as
+                // the screen was open. The set is what makes it a note about a state change
+                // rather than a repeating drumbeat; an id is removed again below once it does
+                // have a location, so a tag that loses its locations says so a second time.
+                if (this.loggedWithoutLocation.add(beaconId)) {
+                    Log.d(TAG, "No locations held for beaconId=" + beaconId + " yet, so it has no card");
+                }
                 continue;
             }
             final BeaconLocationReport lastLocation = maybeLast.get();
+            this.loggedWithoutLocation.remove(beaconId);
             final List<Address> locationInfo = beaconData.getGeocoding();
 
             FrameLayout v;

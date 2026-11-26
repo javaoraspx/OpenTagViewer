@@ -1,8 +1,10 @@
 package dev.wander.android.opentagviewer.ble;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -85,5 +87,42 @@ public class NearbyTagSightingsTest {
         sightings.clear();
 
         assertNull(sightings.freshFor(KEYS, 0L));
+    }
+
+    /**
+     * The map screen drops from one redraw a second to one a minute while nothing is audible,
+     * and this is the question it asks to decide. Answered wrong in the "no" direction, the
+     * cards would stop updating while a tag is still being heard.
+     */
+    @Test
+    public void nothingHeardMeansNothingIsWithinAnyWindow() {
+        assertFalse(new NearbyTagSightings().hasAnyWithin(0L, NearbyTagSightings.FRESH_FOR_MS));
+    }
+
+    @Test
+    public void anythingInsideTheWindowCounts() {
+        final NearbyTagSightings sightings = new NearbyTagSightings();
+        sightings.record(seen(KEYS, 1_000L));
+
+        assertTrue(sightings.hasAnyWithin(1_000L, NearbyTagSightings.FRESH_FOR_MS));
+        assertTrue("one millisecond short of the window is still inside it",
+                sightings.hasAnyWithin(1_000L + NearbyTagSightings.FRESH_FOR_MS - 1,
+                        NearbyTagSightings.FRESH_FOR_MS));
+        assertFalse("at the boundary the sighting no longer counts",
+                sightings.hasAnyWithin(1_000L + NearbyTagSightings.FRESH_FOR_MS,
+                        NearbyTagSightings.FRESH_FOR_MS));
+    }
+
+    /**
+     * One tag in range keeps the whole screen on its fast beat, even when the others are silent.
+     * The ticker asks about the screen, not about a particular tag.
+     */
+    @Test
+    public void oneRecentSightingKeepsTheAnswerTrue() {
+        final NearbyTagSightings sightings = new NearbyTagSightings();
+        sightings.record(seen(KEYS, 0L));
+        sightings.record(seen(BIKE, 25_000L));
+
+        assertTrue(sightings.hasAnyWithin(25_000L, NearbyTagSightings.FRESH_FOR_MS));
     }
 }
