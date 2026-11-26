@@ -48,6 +48,10 @@ scripts/plist_explorer.ipynb
 
 # Local throwaway signing key for release builds. Never a real one.
 *.jks
+# Except the one the CI release build signs with, which is committed on purpose: this is a
+# personal fork, and a key in the repository is what lets any run produce an APK that upgrades
+# the previous one without anybody configuring a secret first. See build-debug.yml.
+!app/ci-release-keystore.jks
 
 # Bundles the exporter writes. `python/` is where it runs from, so an export lands here whenever
 # anybody tries the wizard or the CLI - and one was committed by a `git add -A` that swept it up

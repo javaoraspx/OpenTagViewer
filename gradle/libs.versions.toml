@@ -38,7 +38,10 @@ desugarJdkLibs = "2.1.5"
 # below this app's 24 and so changes nothing here.
 emojiPicker = "1.6.0"
 cronetEmbedded = "143.7445.0"
-amapVersion = "9.8.3"
+# 3dmap-location-search 是将地图/定位/搜索三个 SDK 合成一个 jar 的分发形式。
+# 11.x 起单包 com.amap.api:3dmap 不再更新（Maven 上止于 10.0.600），官方推荐这个合包坐标。
+# 11.3.100_loc11.3.000_sea9.8.1 = 地图 11.3.100 + 定位 11.3.000 + 搜索 9.8.1。
+amapVersion = "11.3.100_loc11.3.000_sea9.8.1"
 osmdroidVersion = "6.1.20"
 # Reads the AES-256 (WinZip) encryption the exporter locks bundles with. java.util.zip cannot
 # decrypt anything at all - not AES, not the legacy ZipCrypto.
@@ -91,7 +94,7 @@ androidx-emoji = { group = "androidx.emoji2", name = "emoji2", version.ref = "em
 androidx-emoji-views = { group = "androidx.emoji2", name = "emoji2-views", version.ref = "emojiPicker" }
 androidx-emoji-views-helper = { group = "androidx.emoji2", name = "emoji2-views-helper", version.ref = "emojiPicker" }
 androidx-emoji-picker = { group = "androidx.emoji2", name = "emoji2-emojipicker", version.ref = "emojiPicker" }
-amap-map3d = { group = "com.amap.api", name = "3dmap", version.ref = "amapVersion" }
+amap-map3d = { group = "com.amap.api", name = "3dmap-location-search", version.ref = "amapVersion" }
 osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroidVersion" }
 zip4j = { group = "net.lingala.zip4j", name = "zip4j", version.ref = "zip4j" }
 commons-csv = { group = "org.apache.commons", name = "commons-csv", version.ref = "commonsCsv" }

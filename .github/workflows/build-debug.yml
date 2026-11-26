@@ -1,4 +1,4 @@
-name: Generate APK (Debug)
+name: Generate APK (Release, signed)
 
 permissions:
   contents: write
@@ -81,31 +81,23 @@ jobs:
         run: |
           echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY || 'maps_key_default_value' }}" > secrets.properties
 
-      # **So every debug APK this repository publishes is signed by the same key.**
+      # **A real release build, signed by one fixed key that lives in the repository.**
       #
-      # A runner has no ~/.android/debug.keystore, so AGP generates one per run. That makes each
-      # debug APK unupgradeable over the last (INSTALL_FAILED_UPDATE_INCOMPATIBLE, and with
-      # allowBackup false an uninstall destroys the tester's imported beacons), and it makes the
-      # Maps SHA-1 restriction impossible to satisfy, which is why maps rendered blank here and
-      # not locally.
+      # This used to assemble a debug APK signed by a per-run generated key: every build was
+      # unupgradeable over the last and the app called itself ".debug". It now builds the release
+      # variant with one fixed keystore, so successive builds install over one another and the
+      # app has its real package name.
       #
-      # Absent secret is not fatal: a fork without it falls back to the generated key and still
-      # builds, which is the behaviour a fork wants.
-      #
-      # Passed through `env` rather than interpolated into the script: the `secrets` context is
-      # not available in a step-level `if` at all, and a `${{ }}` inside a run block puts the
-      # value on the command line, where a shell trace or an injected newline can expose it.
-      - name: Write the shared debug keystore
-        env:
-          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+      # The keystore (app/ci-release-keystore.jks) is committed on purpose: this is a personal
+      # fork, and a committed key means any run - with no secret to configure - produces an APK
+      # that upgrades the previous one. It guards nothing worth guarding here, but it is not a
+      # key anyone should publish an app on a store with. The password is the same well-known
+      # constant build.gradle.kts already falls back to for a local build.
+      - name: Check the release keystore is present
         run: |
-          if [ -z "$DEBUG_KEYSTORE_BASE64" ]; then
-            echo "No DEBUG_KEYSTORE_BASE64 secret; AGP will generate a debug key for this run."
-            echo "APKs from this run cannot be installed over ones from another."
-            exit 0
-          fi
-          printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > app/debug-keystore.jks
-          echo "Debug keystore written, $(wc -c < app/debug-keystore.jks) bytes"
+          test -f app/ci-release-keystore.jks \
+            || { echo "::error::app/ci-release-keystore.jks is missing"; exit 1; }
+          echo "Release keystore present, $(wc -c < app/ci-release-keystore.jks) bytes"
 
       # No stub wheel to validate any more: it is generated from app/stubs/unicorn/ by
       # generateUnicornStubWheel during the build, rather than being checked in.
@@ -127,35 +119,44 @@ jobs:
       - name: Run Chaquopy bridge tests
         run: python -m pytest app/src/test/python -v
 
-      # Create APK Debug
-      - name: Build Debug APK - ${{ env.main_project_module }} module
-        run: ./gradlew testDebugUnitTest assembleDebug
+      # Create the signed Release APK. The signing password environment variables the build
+      # reads (KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD) are exported for this step only.
+      - name: Build Release APK - ${{ env.main_project_module }} module
+        env:
+          KEYSTORE_FILE: ci-release-keystore.jks
+          KEYSTORE_PASSWORD: opentagviewer-ci
+          KEY_ALIAS: upload
+          KEY_PASSWORD: opentagviewer-ci
+        run: ./gradlew testReleaseUnitTest assembleRelease
 
-      # Publish the freshly built phone-only APK to a GitHub Release so testers can download it
-      # straight from the Releases page (no artifact login / slow blob redirect needed). The
-      # version comes from the single source of truth in build.gradle.kts, never hardcoded here.
-      - name: Publish debug APK to GitHub Release
+      # Publish the signed APK to GitHub Releases so it can be downloaded and installed straight
+      # from the Releases page. The version comes from the single source of truth in
+      # build.gradle.kts (scripts/release_version.py), never hardcoded here.
+      - name: Publish signed APK to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           APP_VERSION="$(python3 scripts/release_version.py --kind android --print)"
-          TAG="debug-v${APP_VERSION}"
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          echo "Publishing $APK to release $TAG"
-          gh release view "$TAG" >/dev/null 2>&1 \
-            && gh release upload "$TAG" "$APK" --clobber \
-            || gh release create "$TAG" "$APK" \
-                 --title "OpenTagViewer ${APP_VERSION} (debug, arm64)" \
-                 --notes "Debug APK for real devices (arm64-v8a only). Rebuilt from the latest main." \
-                 --prerelease
+          TAG="v${APP_VERSION}"
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK" || { echo "::error::Release APK missing at $APK"; exit 1; }
+          echo "Publishing $APK as release $TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --title "OpenTagViewer ${APP_VERSION}" \
+              --notes "Signed release APK ${APP_VERSION} (arm64-v8a, real devices only). Built from main." \
+              --latest
+          fi
 
       # Upload Artifact Build
-      # Noted For Output [main_project_module]/build/outputs/apk/debug/
-      - name: Upload APK Debug
+      - name: Upload APK Release
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ env.date_today }} - ${{ env.app_name }} - ${{ env.repository_name }} - APK(s) debug generated
-          path: ${{ env.main_project_module }}/build/outputs/apk/debug/
+          name: ${{ env.date_today }} - ${{ env.app_name }} - ${{ env.repository_name }} - APK(s) release generated
+          path: ${{ env.main_project_module }}/build/outputs/apk/release/
 
       # Room writes these during the build, and rule 1 requires the new one to be committed with
       # the migration that produced it. They are generated, so somebody without an Android
