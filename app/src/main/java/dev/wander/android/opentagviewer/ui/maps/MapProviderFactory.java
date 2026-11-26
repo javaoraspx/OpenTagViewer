@@ -5,6 +5,7 @@ import android.util.Log;
 import androidx.annotation.VisibleForTesting;
 
 import java.util.function.Supplier;
+import android.content.Context;
 
 /**
  * 地图提供商工厂。
@@ -57,7 +58,7 @@ public class MapProviderFactory {
      * stored preferences that still say "google" or "osm" keep loading - they land here and are
      * answered with AMap instead of a map that cannot draw.
      */
-    public static String effectiveProvider(final android.content.Context context, final String providerType) {
+    public static String effectiveProvider(final Context context, final String providerType) {
         if (providerType != null && !PROVIDER_AMAP.equals(providerType)) {
             Log.i(TAG, "Provider '" + providerType + "' is no longer bundled; using AMap");
         }

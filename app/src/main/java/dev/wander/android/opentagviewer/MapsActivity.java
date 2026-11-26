@@ -156,6 +156,7 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import lombok.Data;
 import android.graphics.Bitmap;
+import java.util.concurrent.Executor;
 
 /**
  * TODO: this whole thing is a bit of a godclass. Decouple it.
@@ -398,8 +399,8 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     private final Handler longFetchBannerHandler = new Handler(Looper.getMainLooper());
 
     /** 定位读取的结果一律回到主线程处理，因为回调里会直接操作地图视图。 */
-    private final java.util.concurrent.Executor mainExecutor =
-            androidx.core.content.ContextCompat.getMainExecutor(this);
+    private final Executor mainExecutor =
+            ContextCompat.getMainExecutor(this);
     private final Runnable showLongFetchBanner = () -> {
         this.bannerState.becameDue();
         this.updateLongFetchBanner();

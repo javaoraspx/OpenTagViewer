@@ -290,7 +290,7 @@ android {
          * 条目是与本应用无关的翻译。限定成下面这些既缩小体积，也避免出现「一部分界面是
          * 中文、一部分是印尼语」这种半吊子本地化。
          */
-        localeFilters += listOf("en", "zh", "zh-rCN", "zh-rTW", "ja", "ko", "de", "fr")
+        localeFilters += listOf("en", "zh", "zh-rCN", "zh-rTW", "ja", "ko", "de", "fr", "nl", "ru")
     }
 
     testOptions {

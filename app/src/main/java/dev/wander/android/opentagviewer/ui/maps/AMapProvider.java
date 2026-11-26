@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import com.amap.api.maps.CameraUpdate;
 
 /**
  * 高德地图提供商实现（唯一实现）。
@@ -278,7 +279,7 @@ public class AMapProvider implements IMapProvider {
     public void animateCamera(double latitude, double longitude, float zoom, Runnable callback) {
         if (!this.isUsable()) return;
         try {
-            final com.amap.api.maps.CameraUpdate update =
+            final CameraUpdate update =
                     CameraUpdateFactory.newLatLngZoom(this.toGcj02(latitude, longitude), zoom);
 
             if (callback == null) {
@@ -324,7 +325,7 @@ public class AMapProvider implements IMapProvider {
             for (MapPolyline.LatLng point : points) {
                 builder.include(this.toGcj02(point.getLatitude(), point.getLongitude()));
             }
-            final com.amap.api.maps.CameraUpdate update =
+            final CameraUpdate update =
                     CameraUpdateFactory.newLatLngBounds(builder.build(), paddingPx);
 
             if (callback == null) {
