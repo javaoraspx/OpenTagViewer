@@ -466,4 +466,9 @@
     <string name="settings_section_tags">Метки</string>
     <string name="settings_section_app">Приложение</string>
     <string name="anisette_coreadi_card_title">Не удалось скачать файл от Apple</string>
+    <string name="do_navigate">Маршрут</string>
+    <string name="my_location">Моё местоположение</string>
+    <string name="all_tags">Все метки</string>
+    <string name="collapse">Свернуть</string>
+    <string name="tag_count">%1$d меток</string>
 </resources>

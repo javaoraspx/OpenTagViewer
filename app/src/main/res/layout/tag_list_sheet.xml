@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    "全部标签"列表抽屉：从地图界面底部拉起，一次看到所有标签。
+
+    **为什么加这个。** 地图上的标签是一张张可以左右滑的卡片，一次只看得见一张半。
+    国内的定位类 App（高德、百度、查找）都有一个共同的形态：地图看位置，列表看全部。
+    标签一多，靠横向滑动一张张找是不现实的——用户得先知道要找的是哪一张，才能滑到
+    它。列表是反过来的：先看全，再选一个。
+
+    用 MaterialCardView 而不是普通 LinearLayout，是为了拿到 M3 的抬升层级和顶部圆角，
+    与地图上的标签卡片保持同一套视觉语言。
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/tag_list_sheet"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_alignParentBottom="true"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="8dp"
+    android:layout_marginBottom="8dp"
+    android:visibility="gone"
+    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+    app:cardCornerRadius="@dimen/radius_large"
+    app:cardElevation="8dp"
+    app:strokeWidth="0dp"
+    tools:visibility="visible">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <!-- 拖动把手：让"可以往下收"这件事一眼可见，而不是靠猜 -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/sheet_handle" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/tag_list_sheet_title"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/nunito_bold"
+                android:text="@string/all_tags"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/tag_list_sheet_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:fontFamily="@font/nunito_medium"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="13sp"
+                tools:text="3 个标签" />
+
+            <ImageButton
+                android:id="@+id/tag_list_sheet_collapse"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/collapse"
+                android:padding="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/arrow_back_24px"
+                android:rotation="270"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <!--
+            wrap_content + 代码里按屏幕高度封顶（见 MapsActivity#capSheetHeight）。
+
+            这里原本写的是 android:maxHeight="320dp"，但 View 的 maxHeight 只有
+            ImageView / TextView 这类自己测量内容的控件才认，RecyclerView 会忽略它 ——
+            布局里写了等于没写，标签一多抽屉就会顶到状态栏。
+        -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/tag_list_sheet_recycler"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:paddingStart="12dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="4dp"
+            android:scrollbars="none"
+            tools:listitem="@layout/tag_list_sheet_item" />
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

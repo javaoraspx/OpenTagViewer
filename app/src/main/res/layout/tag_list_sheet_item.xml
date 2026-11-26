@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    "全部标签"列表的一行。
+
+    一行只回答三个问题，按重要性从大到小：这是什么（名字）、它在哪（地址）、多久以前
+    （时间）。电量放最右边，用图标而不是文字——列表里每行都是"电量：中等"会把真正
+    需要扫视的地址挤成一团。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center_vertical"
+    android:minHeight="64dp"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="12dp"
+    android:paddingBottom="10dp">
+
+    <!-- emoji 与图片叠在一起，由代码决定显示哪一个，和地图卡片上的处理一致 -->
+    <FrameLayout
+        android:layout_width="40dp"
+        android:layout_height="40dp">
+
+        <TextView
+            android:id="@+id/tag_row_emoji"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:visibility="gone"
+            tools:text="🎒"
+            tools:visibility="visible" />
+
+        <ImageView
+            android:id="@+id/tag_row_icon"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="6dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/apple"
+            app:tint="?attr/colorPrimary" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tag_row_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/nunito_semi_bold"
+            android:maxLines="1"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="15sp"
+            tools:text="自行车" />
+
+        <TextView
+            android:id="@+id/tag_row_address"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="12sp"
+            tools:text="海淀区中关村大街 1 号" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tag_row_age"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:fontFamily="@font/nunito_regular"
+        android:textColor="?attr/colorOutline"
+        android:textSize="12sp"
+        tools:text="3 分钟前" />
+
+    <ImageView
+        android:id="@+id/tag_row_battery"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@null"
+        android:src="@drawable/battery_android_full_24px"
+        android:visibility="gone"
+        app:tint="?attr/colorOutline"
+        tools:visibility="visible" />
+
+</LinearLayout>

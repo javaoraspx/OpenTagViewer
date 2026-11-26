@@ -96,8 +96,8 @@ android {
         applicationId = "dev.wander.android.opentagviewer"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.2.3"
+        versionCode = 11
+        versionName = "1.2.4"
 
         // Null unless a build type sets it - see the debug block. A release is built from a tag
         // and its versionName is exactly right, so there is nothing a commit would add; the
@@ -155,6 +155,35 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+        }
+    }
+
+    /**
+     * 打包时的排除项。
+     *
+     * <p><b>Kotlin 元数据与版本库文件。</b> 这个项目几乎没有 Kotlin，但依赖库（OkHttp、
+     * AndroidX 的一部分）各自带 *.kotlin_module 与 kotlin/ 目录下的元数据，合起来
+     * 几百 KB，运行时完全用不到。versions.properties 同理，那是构建期产物。
+     *
+     * <p>不排除 .so：它们已经是 STORED（未压缩），再压反而会让安装时多一步解压。
+     */
+    packaging {
+        resources {
+            excludes += listOf(
+                "META-INF/*.kotlin_module",
+                "META-INF/kotlin/**",
+                "META-INF/versions/**",
+                "META-INF/*.version",
+                "kotlin/**",
+                "**/versions.properties",
+                "**/*.kotlin_builtins",
+                "DebugProbesKt.bin",
+                "META-INF/DEPENDENCIES",
+                // **不排除 META-INF/LICENSE* / NOTICE*。** 那是依赖库自带的许可文本，删掉
+                // 能省几十 KB，但这份 APK 里就再没有它们的署名声明了；这是个公开发布的
+                // 二进制，省这点体积不值得换一个合规问题。项目根目录的 NOTICE 只覆盖本
+                // 仓库自己的代码，不是这些依赖的替代。
+            )
         }
     }
 
@@ -233,6 +262,9 @@ android {
             isMinifyEnabled = true
             // 同时裁剪无人引用的资源（多语言以外的 drawable/layout 之类）。
             isShrinkResources = true
+            // aapt2 的 PNG 重编码：去掉元数据、改用更优的压缩参数。这一步对
+            // 矢量图无效，但高德 AAR 里带了一批位图，能省几百 KB。
+            isCrunchPngs = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

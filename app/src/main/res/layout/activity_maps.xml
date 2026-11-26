@@ -41,8 +41,8 @@
             android:clipChildren="false"
             android:clipToPadding="false"
             android:orientation="horizontal"
-            android:paddingLeft="16dp"
-            android:paddingRight="16dp" />
+            android:paddingStart="@dimen/map_edge_margin"
+            android:paddingEnd="@dimen/map_edge_margin" />
     </HorizontalScrollView>
 
     <!-- The top margins here and on long_fetch_banner are the gap below the status bar, not the
@@ -53,29 +53,28 @@
     <LinearLayout
         android:id="@+id/more_dropdown_top_right"
         android:layout_width="wrap_content"
-        android:layout_height="60dp"
+        android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
         android:layout_alignParentRight="true"
         android:layout_marginTop="11dp"
-        android:layout_marginRight="10dp"
+        android:layout_marginRight="@dimen/map_fab_margin"
         android:clipToPadding="false"
-        android:orientation="horizontal"
-        android:padding="10dp">
+        android:orientation="horizontal">
 
         <ImageButton
             android:id="@+id/button_more_settings"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
+            android:layout_width="@dimen/map_fab_size"
+            android:layout_height="@dimen/map_fab_size"
             android:background="@drawable/ripple_background"
-            android:backgroundTint="?android:attr/colorBackground"
             android:clickable="true"
+            android:contentDescription="@string/settings"
             android:cropToPadding="false"
-            android:elevation="8dp"
+            android:elevation="3dp"
             android:onClick="onClickMoreSettings"
-            android:padding="11dp"
+            android:padding="13dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/menu_dots_vertical_24" />
+            android:src="@drawable/menu_dots_vertical_24"
+            app:tint="?attr/colorOnSurface" />
 
     </LinearLayout>
 
@@ -108,55 +107,80 @@
     <LinearLayout
         android:id="@+id/buttons_bottom_right"
         android:layout_width="wrap_content"
-        android:layout_height="70dp"
+        android:layout_height="wrap_content"
         android:layout_above="@id/tags_scrollable_area"
         android:layout_alignParentRight="true"
-        android:layout_marginRight="10dp"
-        android:layout_marginBottom="8dp"
+        android:layout_marginRight="@dimen/map_fab_margin"
+        android:layout_marginBottom="@dimen/map_fab_gap"
         android:clipChildren="false"
         android:clipToPadding="false"
-        android:orientation="horizontal"
-        android:paddingLeft="10dp"
-        android:paddingTop="10dp"
-        android:paddingRight="10dp"
-        android:paddingBottom="20dp">
+        android:orientation="horizontal">
+
+        <!-- 全部标签：拉起底部的标签列表抽屉。放在这里而不是右上角，是因为它打开的东西
+             从底部出来，按钮和结果的动线一致；也让右上角只留设置一项，不与高频操作混在一起。 -->
+        <ImageButton
+            android:id="@+id/button_tag_list"
+            android:layout_width="@dimen/map_fab_size"
+            android:layout_height="@dimen/map_fab_size"
+            android:layout_marginEnd="@dimen/map_fab_gap"
+            android:background="@drawable/ripple_background"
+            android:clickable="true"
+            android:contentDescription="@string/all_tags"
+            android:cropToPadding="false"
+            android:elevation="3dp"
+            android:focusable="true"
+            android:onClick="onClickTagList"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/format_list_bulleted_24px"
+            app:tint="?attr/colorOnSurface" />
 
         <ImageButton
             android:id="@+id/button_navigate_to"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
+            android:layout_width="@dimen/map_fab_size"
+            android:layout_height="@dimen/map_fab_size"
             android:background="@drawable/ripple_background"
-            android:backgroundTint="?android:attr/colorBackground"
             android:clickable="true"
+            android:contentDescription="@string/do_navigate"
             android:cropToPadding="false"
-            android:elevation="8dp"
+            android:elevation="3dp"
             android:focusable="true"
             android:onClick="onClickNavigateTo"
-            android:padding="8dp"
+            android:padding="12dp"
             android:scaleType="fitCenter"
             android:src="@drawable/directions_24px"
-            android:visibility="visible" />
+            android:visibility="visible"
+            app:tint="?attr/colorPrimary" />
 
         <ImageButton
             android:id="@+id/button_my_location"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginLeft="10dp"
-            android:layout_weight="1"
+            android:layout_width="@dimen/map_fab_size"
+            android:layout_height="@dimen/map_fab_size"
+            android:layout_marginStart="@dimen/map_fab_gap"
             android:background="@drawable/ripple_background"
-            android:backgroundTint="?android:attr/colorBackground"
             android:clickable="true"
+            android:contentDescription="@string/my_location"
             android:cropToPadding="false"
-            android:elevation="8dp"
+            android:elevation="3dp"
             android:focusable="true"
             android:onClick="onClickMyLocation"
-            android:padding="8dp"
+            android:padding="12dp"
             android:scaleType="fitCenter"
             android:src="@drawable/my_location_24px"
-            android:visibility="gone" />
+            android:visibility="gone"
+            app:tint="?attr/colorPrimary" />
 
     </LinearLayout>
+
+    <!--
+        全部标签抽屉。放在卡片轮播之后、两因素遮罩之前：它展开时要盖住卡片，
+        但遇到需要重新验证会话的遮罩必须让位。
+
+        include 上不写 layout_* / id：include 的布局参数会被忽略，用的是被包含布局根节点
+        自己的参数（tag_list_sheet.xml 里已经 alignParentBottom），id 也由根节点自己声明，
+        重复写一遍反而让 findViewById 和布局里的引用指向两个不同的常量。
+    -->
+    <include layout="@layout/tag_list_sheet" />
 
     <!--
         Last child, so it is drawn over everything: with the session in this state nothing on

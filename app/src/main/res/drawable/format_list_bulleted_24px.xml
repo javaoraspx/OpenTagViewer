@@ -1,0 +1,17 @@
+<!--
+    Material Symbols "format_list_bulleted"，与项目里其它图标同一套 960 单位 viewBox。
+
+    用于"全部标签"按钮：三条横线加左侧三个圆点，是"一个列表"最不容易被误读成别的意思的
+    图形。自己写的 path 而不是从别处拷一个 viewBox 24 的进来——混用两套坐标系会让图标在
+    同一排按钮里大小不一。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960"
+    android:tint="?attr/colorControlNormal">
+  <path
+      android:fillColor="@android:color/white"
+      android:pathData="M200,760Q167,760 143.5,736.5Q120,713 120,680Q120,647 143.5,623.5Q167,600 200,600Q233,600 256.5,623.5Q280,647 280,680Q280,713 256.5,736.5Q233,760 200,760ZM360,720L360,640L840,640L840,720L360,720ZM200,560Q167,560 143.5,536.5Q120,513 120,480Q120,447 143.5,423.5Q167,400 200,400Q233,400 256.5,423.5Q280,447 280,480Q280,513 256.5,536.5Q233,560 200,560ZM360,520L360,440L840,440L840,520L360,520ZM200,360Q167,360 143.5,336.5Q120,313 120,280Q120,247 143.5,223.5Q167,200 200,200Q233,200 256.5,223.5Q280,247 280,280Q280,313 256.5,336.5Q233,360 200,360ZM360,320L360,240L840,240L840,320L360,320Z"/>
+</vector>

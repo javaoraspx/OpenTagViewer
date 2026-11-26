@@ -466,4 +466,9 @@
     <string name="settings_section_tags">标签</string>
     <string name="settings_section_app">应用</string>
     <string name="anisette_coreadi_card_title">无法从 Apple 下载文件</string>
+    <string name="do_navigate">导航到这里</string>
+    <string name="my_location">回到我的位置</string>
+    <string name="all_tags">全部标签</string>
+    <string name="collapse">收起</string>
+    <string name="tag_count">%1$d 个标签</string>
 </resources>

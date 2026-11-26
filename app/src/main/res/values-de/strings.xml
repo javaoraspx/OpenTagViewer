@@ -466,4 +466,9 @@ Wenn Apple die Anfrage lediglich abgelehnt hat, lohnt es sich, zu warten und es 
     <string name="settings_section_tags">Tags</string>
     <string name="settings_section_app">App</string>
     <string name="anisette_coreadi_card_title">Eine Datei von Apple konnte nicht geladen werden</string>
+    <string name="do_navigate">Navigieren</string>
+    <string name="my_location">Mein Standort</string>
+    <string name="all_tags">Alle Tags</string>
+    <string name="collapse">Einklappen</string>
+    <string name="tag_count">%1$d Tags</string>
 </resources>

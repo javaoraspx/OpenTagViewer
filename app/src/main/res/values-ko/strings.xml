@@ -466,4 +466,9 @@ Apple이 요청을 거부한 것뿐이라면 잠시 기다렸다가 다시 시�
     <string name="settings_section_tags">태그</string>
     <string name="settings_section_app">앱</string>
     <string name="anisette_coreadi_card_title">Apple에서 파일을 다운로드하지 못했습니다</string>
+    <string name="do_navigate">길찾기</string>
+    <string name="my_location">내 위치</string>
+    <string name="all_tags">모든 태그</string>
+    <string name="collapse">접기</string>
+    <string name="tag_count">%1$d개</string>
 </resources>

@@ -17,6 +17,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 
 import android.bluetooth.le.ScanSettings;
@@ -31,6 +33,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.format.DateUtils;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
@@ -60,6 +63,7 @@ import dev.wander.android.opentagviewer.ui.maps.MapMarker;
 import dev.wander.android.opentagviewer.ui.maps.MapPolyline;
 import dev.wander.android.opentagviewer.ui.maps.MarkerPalette;
 import dev.wander.android.opentagviewer.ui.maps.NearbyBatteryIcon;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -115,6 +119,7 @@ import dev.wander.android.opentagviewer.python.PythonAccountLoginException;
 import dev.wander.android.opentagviewer.python.PythonAuthService;
 import dev.wander.android.opentagviewer.db.repo.UserDataRepository;
 import dev.wander.android.opentagviewer.ui.maps.TagCardHelper;
+import dev.wander.android.opentagviewer.ui.maps.TagListSheetAdapter;
 import dev.wander.android.opentagviewer.ui.maps.TagListSwiperHelper;
 import dev.wander.android.opentagviewer.util.android.CachedPhoneLocation;
 import dev.wander.android.opentagviewer.util.android.FusedPhoneLocation;
@@ -149,6 +154,7 @@ import dev.wander.android.opentagviewer.ble.NearbyTagSightings;
 import dev.wander.android.opentagviewer.ble.NearbyTagIndex;
 import dev.wander.android.opentagviewer.ble.NearbyTagWatcher;
 import dev.wander.android.opentagviewer.ble.FmdnNearbyWatcher;
+import dev.wander.android.opentagviewer.ble.FindMyAdvertisement;
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Observable;
@@ -206,6 +212,13 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
      * {@link IMapProvider#initialZoom()}, because the number means different things on different
      * tile pyramids - see there.
      */
+    /**
+     * 卡片左右各留多少 dp 的空白。见 {@link #cardWidthPx()}。
+     *
+     * <p>20dp 而不是原来的 40px：40px 在 3x 屏上只有 13dp，卡片会贴到屏幕边缘。
+     */
+    private static final float CARD_SIDE_INSET_DP = 20f;
+
     private static final float CAMERA_ON_MAP_INITIAL_ZOOM = 16.0f; // see: https://developers.google.com/maps/documentation/android-sdk/views#zoom
 
     /** The current provider's opening zoom, or the default when there is no provider yet. */
@@ -382,6 +395,16 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
 
     private TagListSwiperHelper tagListSwiperHelper = null;
 
+    /**
+     * 底部"全部标签"抽屉。标签多到横向卡片滑不过来时的入口。
+     *
+     * <p>只在 {@link #setupTagScrollArea()} 里创建一次，之后只换数据，不重建 —— 重建会把
+     * 用户的滚动位置一起丢掉。
+     */
+    private TagListSheetAdapter tagListSheetAdapter = null;
+    private RecyclerView tagListSheetRecycler = null;
+    private MaterialCardView tagListSheet = null;
+
     private final Handler refreshSchedulerHandler = new Handler();
     private Runnable nextLocationRefreshTask = null;
 
@@ -395,6 +418,17 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
      * first fetch does not sit there looking frozen.
      */
     private static final long SHOW_LONG_FETCH_BANNER_AFTER_MS = 6000L;
+
+    /** 抽屉列表里一行的高度，与 tag_list_sheet_item.xml 的 minHeight + 上下 padding 对齐。 */
+    private static final float SHEET_ROW_HEIGHT_DP = 64f;
+
+    /** 列表自身的上下 padding 之和（4dp + 4dp），算进内容高度里免得最后一行被切。 */
+    private static final float SHEET_LIST_PADDING_DP = 8f;
+
+    /**
+     * 列表最高占屏幕高度的比例。再高就把地图盖住了，而用户点这一行正是为了看它在哪。
+     */
+    private static final float SHEET_MAX_SCREEN_FRACTION = 0.4f;
 
     private final Handler longFetchBannerHandler = new Handler(Looper.getMainLooper());
 
@@ -1080,6 +1114,27 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 .subscribe(
                         reports -> this.handleDeviceListChanged(),
                         error -> Log.e(TAG, "Looking again for " + beaconId + " failed", error));
+    }
+
+    /**
+     * 一张标签卡片的宽度，单位像素。
+     *
+     * <p><b>屏幕宽减去 40dp。</b> 左右各留 20dp：一侧是 16dp 的列表内边距加 6dp 的卡片外边距，
+     * 另一侧再加上下一张卡片露出来的那一角——让人看得出来"这里还能往右滑"。
+     *
+     * <p>这个数以前是字面量 {@code - 80}，是像素不是 dp，所以在 3x 屏上左右只留了 13dp，
+     * 卡片几乎贴着屏幕边。现在按 dp 换算，各种像素密度下留白一致。
+     *
+     * <p>卡片高度由调用方设成 MATCH_PARENT，宽度只在这里算一次。
+     */
+    private int cardWidthPx() {
+        final int screenWidthPx = this.windowWidth != 0
+                ? this.windowWidth
+                : this.getWindow().getDecorView().getWidth();
+        final int sideInsetPx = Math.round(
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, CARD_SIDE_INSET_DP,
+                        this.getResources().getDisplayMetrics()));
+        return Math.max(screenWidthPx - sideInsetPx * 2, 0);
     }
 
     public void onClickMoreSettings(View view)
@@ -2688,6 +2743,120 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 this::goToBeaconOnMap
         );
         this.tagListSwiperHelper.setupTagScrollArea();
+
+        this.setupTagListSheet();
+    }
+
+    /**
+     * 准备好"全部标签"抽屉，但先不显示。
+     *
+     * <p>适配器的数据来自 {@link #updateBeaconCards()}，两者是同一份 {@code inOrder} 列表，
+     * 所以卡片和列表永远同序 —— 用户在设备页拖动排序后，两处会一起变。
+     */
+    private void setupTagListSheet() {
+        this.tagListSheet = this.findViewById(R.id.tag_list_sheet);
+        this.tagListSheetRecycler = this.findViewById(R.id.tag_list_sheet_recycler);
+        if (this.tagListSheet == null || this.tagListSheetRecycler == null) {
+            // 布局里没有这一块（比如某个定制分支），就不装它，而不是在每次重绘时 NPE。
+            Log.w(TAG, "Tag list sheet is not present in this layout; skipping its setup");
+            return;
+        }
+
+        this.tagListSheetAdapter = new TagListSheetAdapter(this::onTagRowClicked);
+        this.tagListSheetRecycler.setLayoutManager(new LinearLayoutManager(this));
+        this.tagListSheetRecycler.setAdapter(this.tagListSheetAdapter);
+        // 不调 setHasFixedSize(true)：它在滚动方向上要求固定尺寸，而这个列表是
+        // wrap_content + maxHeight（几行就只占几行，多了才封顶），两者互相矛盾。
+        // 行高固定带来的收益在这里也不成立——列表最多几十行，一次测量不是瓶颈。
+
+        this.findViewById(R.id.tag_list_sheet_collapse).setOnClickListener(v -> this.hideTagListSheet());
+    }
+
+    /**
+     * 按行数给列表定高，超过上限就封顶。
+     *
+     * <p><b>为什么不直接用固定上限。</b> 高度写死成"屏幕四成"，两个标签时下面会留一大片
+     * 空白，看起来像列表没加载完。所以是 min(内容高度, 上限)：行数少就正好几行高。
+     *
+     * <p>行高取 {@code tag_row} 的 minHeight（64dp）加上下 padding，与布局里的值一致。
+     * 这里不做"先测量再截断"——那需要一次额外布局，而且行数是已知的。
+     *
+     * <p>用屏幕高度的比例而不是固定 dp：横屏和折叠屏展开后，固定 320dp 不是太高就是太矮。
+     * 四成留出的余量刚好让地图上仍然看得见被选中的那个点。
+     */
+    private void sizeSheetRecycler(final int rowCount) {
+        if (this.tagListSheetRecycler == null || rowCount <= 0) {
+            return;
+        }
+
+        final float density = this.getResources().getDisplayMetrics().density;
+        final int rowHeightPx = Math.round(SHEET_ROW_HEIGHT_DP * density);
+        final int listPaddingPx = Math.round(SHEET_LIST_PADDING_DP * density);
+        final int contentPx = rowCount * rowHeightPx + listPaddingPx;
+
+        final int capPx = Math.round(
+                this.getResources().getDisplayMetrics().heightPixels * SHEET_MAX_SCREEN_FRACTION);
+
+        final int heightPx = Math.min(contentPx, capPx);
+        final ViewGroup.LayoutParams params = this.tagListSheetRecycler.getLayoutParams();
+        if (params != null && params.height != heightPx) {
+            params.height = heightPx;
+            this.tagListSheetRecycler.setLayoutParams(params);
+        }
+    }
+
+    /** 地图右下角那个"列表"按钮。点一次开，再点一次收起。 */
+    public void onClickTagList(View view) {
+        if (this.tagListSheet == null) {
+            return;
+        }
+        if (this.tagListSheet.getVisibility() == View.VISIBLE) {
+            this.hideTagListSheet();
+        } else {
+            this.showTagListSheet();
+        }
+    }
+
+    private void showTagListSheet() {
+        if (this.tagListSheet == null || this.tagListSheetAdapter == null) {
+            return;
+        }
+        if (this.tagListSheetAdapter.size() == 0) {
+            // 一个标签都没有时拉开一个空抽屉只会让人以为是加载失败。什么都不做，
+            // 屏幕上的空状态本来就已经说明了问题。
+            Toast.makeText(this, R.string.no_devices_imported_yet, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        this.tagListSheet.setVisibility(View.VISIBLE);
+        this.sizeSheetRecycler(this.tagListSheetAdapter.size());
+
+        // 计数只在打开时刷一次：抽屉开着的时候 applySheetEntries 会继续更新它，
+        // 这里是收起期间那些刷新补上的一次。
+        final TextView count = this.findViewById(R.id.tag_list_sheet_count);
+        if (count != null) {
+            count.setText(this.getString(R.string.tag_count, this.tagListSheetAdapter.size()));
+        }
+    }
+
+    private void hideTagListSheet() {
+        if (this.tagListSheet != null) {
+            this.tagListSheet.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * 列表里点了一行：把地图移过去，把卡片轮播滚到那一张，然后收起抽屉。
+     *
+     * <p>三者都做，是因为用户点这一行的意图是"我要看这个标签"，而地图视角、卡片、
+     * 抽屉三者任一没跟上，都会让人以为点错了。
+     */
+    private void onTagRowClicked(final String beaconId) {
+        Log.d(TAG, "Tag list row clicked for beaconId=" + beaconId + ", focusing it on the map");
+        this.hideTagListSheet();
+        this.goToBeaconOnMap(beaconId);
+        if (this.tagListSwiperHelper != null) {
+            this.tagListSwiperHelper.navigateToCard(beaconId);
+        }
     }
 
     private void goToBeaconOnMap(final String beaconId) {
@@ -2761,6 +2930,9 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 .collect(Collectors.toList()));
 
         int index = 0;
+        // 与卡片同一次遍历填出来的列表数据。同一个 inOrder、同一个 lastLocation、同一个
+        // timeAgo，所以两处显示的地址和时间不会互相打架，也不用再算一遍。
+        final List<TagListSheetAdapter.Entry> sheetEntries = new ArrayList<>();
         for (final BeaconInformation ordered : inOrder) {
             final BeaconData beaconData = this.beacons.get(ordered.getBeaconId());
             if (beaconData == null) {
@@ -2795,7 +2967,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             // match width to device screen
             assert v != null;
             var params = v.getLayoutParams();
-            params.width = this.windowWidth != 0 ? (this.windowWidth - 80) : (this.getWindow().getDecorView().getWidth() - 80);
+            params.width = this.cardWidthPx();
 
             // Cards size themselves to their own content, so a two-line address made one card
             // taller than its neighbours. Inflating with a null root drops the layout's own
@@ -2870,6 +3042,46 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 NearbyBatteryIcon.show(v.findViewById(R.id.device_nearby_battery), null);
             }
 
+            // **列表那一行的数据，从卡片已经算好的值里取。**
+            //
+            // 地址：locationInfo 为空时卡片显示坐标，列表也显示坐标 —— 用户在两处看到的是同
+            // 一件事。列表宽度只有卡片的一半多一点，Geocoder 第一条是"省, 市, 区, 街道, 号"
+            // 这种从大到小的串，一行放不下，所以靠 maxLines=1 + ellipsize 截断，而不是在这里
+            // 另外拼一个短地址：那会变成第三套地址格式，和卡片的对不上。
+            final String sheetAddress;
+            if (locationInfo.isEmpty()) {
+                sheetAddress = String.format(
+                        Locale.ROOT, "%.6f, %.6f", lastLocation.getLatitude(), lastLocation.getLongitude());
+            } else {
+                sheetAddress = locationInfo.get(0).getAddressLine(0);
+            }
+
+            // 时间：卡片在"刚听见"和"最后更新"之间二选一，列表跟着同一个选择走。
+            // 听见时的电量只有这时才有，所以它和 heardNow 一起为空或有。
+            final String sheetAge;
+            final FindMyAdvertisement.BatteryLevel sheetBattery;
+            if (heardNow != null) {
+                sheetAge = this.getString(R.string.nearby_now);
+                sheetBattery = heardNow.getBatteryLevel();
+            } else {
+                sheetAge = DateUtils.getRelativeTimeSpanString(
+                        lastLocation.getTimestamp(),
+                        now,
+                        DateUtils.MINUTE_IN_MILLIS
+                ).toString();
+                // 落库的历史报告里没有可信的当前电量，Apple 的旧读数挂在几天前的位置上，
+                // 拿来当"现在的电量"是在说谎。所以没有实时听见就没有电量图标。
+                sheetBattery = null;
+            }
+
+            sheetEntries.add(new TagListSheetAdapter.Entry(
+                    beaconId,
+                    beacon.getName(),
+                    beacon.isEmojiFilled() ? beacon.getEmoji() : null,
+                    sheetAddress,
+                    sheetAge,
+                    sheetBattery));
+
             // **Put an existing card where it now belongs.** Cards are created once and reused,
             // so a card added before the user rearranged anything keeps its original slot
             // otherwise - the model would be in the new order and the screen in the old one.
@@ -2882,6 +3094,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             index++;
         }
 
+        this.applySheetEntries(sheetEntries);
 
         ImageButton navigationButton = this.findViewById(R.id.button_navigate_to);
         if (this.dynamicCardsForTag.isEmpty()) {
@@ -2896,6 +3109,43 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             scrollContainer.setVisibility(VISIBLE); // UNHIDE PARENT CONTAINER
             navigationButton.setVisibility(VISIBLE);
         }
+    }
+
+    /**
+     * 把这一轮算好的行数据交给抽屉。
+     *
+     * <p><b>抽屉收起时只更新数据，不碰视图。</b> 刷新定时器在抽屉关着的时候也在跑，
+     * 每次都 {@code notifyDataSetChanged} 会让隐藏中的 RecyclerView 走一遍完整的测量布局，
+     * 白花一帧的时间。收起状态下提交的数据仍然是新的，下次打开就是最新的。
+     *
+     * <p>一个标签都凑不出卡片时（都还没有位置）把抽屉一并收起：留一个空壳盖在地图上，
+     * 用户点开看到的是空白，比看不到更让人费解。
+     */
+    private void applySheetEntries(final List<TagListSheetAdapter.Entry> entries) {
+        if (this.tagListSheet == null || this.tagListSheetAdapter == null) {
+            return;
+        }
+
+        if (entries.isEmpty()) {
+            this.hideTagListSheet();
+            return;
+        }
+
+        this.tagListSheetAdapter.submit(entries);
+
+        // 收起时到此为止：数据已经是最新的，视图一行都没画，打开时会用这份数据绘制。
+        if (this.tagListSheet.getVisibility() != View.VISIBLE) {
+            return;
+        }
+
+        final TextView count = this.findViewById(R.id.tag_list_sheet_count);
+        if (count != null) {
+            count.setText(this.getString(R.string.tag_count, entries.size()));
+        }
+
+        // 打开着的时候标签数量也可能变（导入、删除），高度跟着重算一次，
+        // 否则删到只剩两三个时列表下面会留着原来的空白。
+        this.sizeSheetRecycler(entries.size());
     }
 
     private void sendToLogin() {

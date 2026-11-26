@@ -123,7 +123,10 @@ public class AMapProvider implements IMapProvider {
 
         try {
             this.aMap.setMapType(this.shouldUseDarkMap() ? AMap.MAP_TYPE_NIGHT : AMap.MAP_TYPE_NORMAL);
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            // Throwable rather than Exception: this runs on a view that may already be
+            // detached from a destroyed activity, where the SDK has been seen to fail with
+            // an Error instead. A map that keeps its previous style is still usable.
             Log.w(TAG, "Failed to switch the map style", e);
         }
     }

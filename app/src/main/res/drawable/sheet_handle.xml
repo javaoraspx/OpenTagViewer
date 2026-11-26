@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 底部抽屉顶部的拖动把手：40dp x 4dp 的圆角横条。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/colorOutlineVariant" />
+    <corners android:radius="2dp" />
+</shape>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    界面尺寸的统一出处。
+
+    以前这些值散在各处：卡片圆角写死在 layout_rounded.xml 里，按钮是 40dp，浮动按钮的
+    边距一会儿 10dp 一会儿 16dp，标签文字一会儿 12sp 一会儿 10sp。改一处风格要翻六七个
+    文件，而且很容易漏掉夜间模式那份。
+-->
+<resources>
+    <!-- 圆角：Material 3 的大、中、小三档 -->
+    <dimen name="radius_small">8dp</dimen>
+    <dimen name="radius_medium">16dp</dimen>
+    <dimen name="radius_large">24dp</dimen>
+
+    <!-- 浮动圆形按钮。48dp 是 Android 无障碍指南建议的最小可点区域，
+         原来的 40dp 在中国用户常用的单手操作下很容易点空。 -->
+    <dimen name="map_fab_size">48dp</dimen>
+    <dimen name="map_fab_margin">16dp</dimen>
+    <dimen name="map_fab_gap">12dp</dimen>
+
+    <!-- 地图界面顶部/底部的安全间距 -->
+    <dimen name="map_edge_margin">16dp</dimen>
+
+    <!-- 标签卡片 -->
+    <dimen name="tag_card_width">300dp</dimen>
+    <dimen name="tag_card_side_margin">6dp</dimen>
+    <dimen name="tag_card_corner">24dp</dimen>
+
+    <!-- 卡片底部四个操作按钮的圆形底 -->
+    <dimen name="tag_action_circle">44dp</dimen>
+    <!-- 操作按钮文字：10sp 在中文下偏小，11sp 是能放下"位置历史"四字又不挤的下限 -->
+    <dimen name="tag_action_label_size">11sp</dimen>
+</resources>

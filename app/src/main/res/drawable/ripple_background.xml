@@ -1,6 +1,22 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<ripple
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="#17000000">
-    <item android:drawable="@drawable/circle_white"/>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    工具栏与地图按钮共用的圆形涟漪背景。
+
+    **底色用 colorSurface，不再写死白色。** circle_white 是纯 #FFFFFF，夜间模式下每个
+    这样的按钮都是一块刺眼的白斑压在深色界面上。colorSurface 跟着主题走：日间接近白，
+    夜间是深灰，两种情况都和卡片、工具栏处于同一层级。
+
+    描边是后加的：单色圆片盖在地图或照片上时边界会糊掉，1dp 的 outlineVariant 能把它
+    从背景里分出来，而不用加投影。
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="?attr/colorControlHighlight">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="?attr/colorSurface" />
+            <stroke
+                android:width="1dp"
+                android:color="?attr/colorOutlineVariant" />
+        </shape>
+    </item>
 </ripple>

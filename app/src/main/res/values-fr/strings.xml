@@ -466,4 +466,9 @@ Si Apple a simplement refusé la requête, il vaut mieux attendre et réessayer.
     <string name="settings_section_tags">Balises</string>
     <string name="settings_section_app">Application</string>
     <string name="anisette_coreadi_card_title">Impossible de télécharger un fichier d\'Apple</string>
+    <string name="do_navigate">Itinéraire</string>
+    <string name="my_location">Ma position</string>
+    <string name="all_tags">Toutes les balises</string>
+    <string name="collapse">Réduire</string>
+    <string name="tag_count">%1$d balises</string>
 </resources>

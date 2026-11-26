@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    标签卡片的背景。
+
+    比原来的 layout_rounded 圆角更大（24dp 对 20dp）：大圆角在中文界面里更常见，
+    也更明确地把卡片和地图底图区分开。颜色用 colorSurface 而不是 colorBackground，
+    这样卡片始终比地图底图"高一层"，而不是同色融在一起。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?attr/colorSurface" />
+    <corners android:radius="@dimen/tag_card_corner" />
+</shape>

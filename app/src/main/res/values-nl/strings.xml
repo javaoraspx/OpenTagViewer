@@ -466,4 +466,9 @@ Als Apple het verzoek simpelweg weigerde, is even wachten en opnieuw proberen he
     <string name="settings_section_tags">Tags</string>
     <string name="settings_section_app">App</string>
     <string name="anisette_coreadi_card_title">Kon een bestand van Apple niet downloaden</string>
+    <string name="do_navigate">Navigeren</string>
+    <string name="my_location">Mijn locatie</string>
+    <string name="all_tags">Alle tags</string>
+    <string name="collapse">Inklappen</string>
+    <string name="tag_count">%1$d tags</string>
 </resources>

@@ -16,12 +16,11 @@
             android:id="@+id/tag_item_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginLeft="4dp"
-            android:layout_marginRight="4dp"
-            android:background="@drawable/layout_rounded"
-            android:backgroundTint="?android:attr/colorBackground"
+            android:layout_marginStart="@dimen/tag_card_side_margin"
+            android:layout_marginEnd="@dimen/tag_card_side_margin"
+            android:background="@drawable/tag_card_background"
             android:clipToPadding="false"
-            android:elevation="8dp"
+            android:elevation="6dp"
             android:orientation="vertical">
 
             <LinearLayout
@@ -85,11 +84,12 @@
                         android:id="@+id/device_name"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:ellipsize="end"
                         android:fontFamily="@font/nunito_bold"
                         android:maxLines="2"
                         android:text="SomeTag 1"
-                        android:textColor="?attr/colorOnBackground"
-                        android:textSize="18sp" />
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="17sp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -222,8 +222,8 @@
                     android:padding="5dp">
 
                     <FrameLayout
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/tag_action_circle"
+                        android:layout_height="@dimen/tag_action_circle"
                         android:layout_gravity="center"
                         android:background="@drawable/circle_filled"
                         android:backgroundTint="?attr/colorSurfaceContainerHighest"
@@ -263,7 +263,7 @@
                         android:maxLines="2"
                         android:text="@string/location_history"
                         android:textAlignment="gravity"
-                        android:textSize="10sp" />
+                        android:textSize="@dimen/tag_action_label_size" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -281,8 +281,8 @@
                     android:padding="5dp">
 
                     <FrameLayout
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/tag_action_circle"
+                        android:layout_height="@dimen/tag_action_circle"
                         android:layout_gravity="center"
                         android:background="@drawable/circle_filled"
                         android:backgroundTint="?attr/colorSurfaceContainerHighest"
@@ -321,7 +321,7 @@
                         android:gravity="center"
                         android:maxLines="2"
                         android:text="@string/refresh"
-                        android:textSize="10sp" />
+                        android:textSize="@dimen/tag_action_label_size" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -340,8 +340,8 @@
                     android:visibility="visible">
 
                     <FrameLayout
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/tag_action_circle"
+                        android:layout_height="@dimen/tag_action_circle"
                         android:layout_gravity="center"
                         android:background="@drawable/circle_filled"
                         android:backgroundTint="?attr/colorSurfaceContainerHighest"
@@ -380,7 +380,7 @@
                         android:gravity="center"
                         android:maxLines="2"
                         android:text="@string/do_ring"
-                        android:textSize="10sp" />
+                        android:textSize="@dimen/tag_action_label_size" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -399,8 +399,8 @@
                     android:visibility="visible">
 
                     <FrameLayout
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
+                        android:layout_width="@dimen/tag_action_circle"
+                        android:layout_height="@dimen/tag_action_circle"
                         android:layout_gravity="center"
                         android:background="@drawable/circle_filled"
                         android:backgroundTint="?attr/colorSurfaceContainerHighest"
@@ -438,7 +438,7 @@
                         android:gravity="center"
                         android:maxLines="2"
                         android:text="@string/more"
-                        android:textSize="10sp" />
+                        android:textSize="@dimen/tag_action_label_size" />
                 </LinearLayout>
 
             </LinearLayout>
