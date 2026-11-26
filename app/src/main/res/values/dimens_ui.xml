@@ -18,6 +18,15 @@
     <dimen name="map_fab_margin">16dp</dimen>
     <dimen name="map_fab_gap">12dp</dimen>
 
+    <!--
+        浮动按钮与下方标签卡片之间的空隙。
+
+        原来是 paddingBottom 20dp + layout_marginBottom 8dp 两层叠出来的 28dp，看不出
+        是哪一层在起作用。合成一个值之后含义清楚了：这是"按钮区和卡片之间留多宽"。
+        比按钮之间的 12dp 大，因为它们属于两个不同的组，贴太近会让人以为是一排。
+    -->
+    <dimen name="map_fab_to_card_gap">28dp</dimen>
+
     <!-- 地图界面顶部/底部的安全间距 -->
     <dimen name="map_edge_margin">16dp</dimen>
 

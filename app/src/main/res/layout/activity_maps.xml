@@ -111,7 +111,7 @@
         android:layout_above="@id/tags_scrollable_area"
         android:layout_alignParentRight="true"
         android:layout_marginRight="@dimen/map_fab_margin"
-        android:layout_marginBottom="@dimen/map_fab_gap"
+        android:layout_marginBottom="@dimen/map_fab_to_card_gap"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:orientation="horizontal">
