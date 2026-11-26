@@ -73,7 +73,7 @@ import dev.wander.android.opentagviewer.anisette.AnisetteStatus;
 import dev.wander.android.opentagviewer.anisette.EmulatedMacAnisette;
 import dev.wander.android.opentagviewer.anisette.MacCoreAdiFetcher;
 import dev.wander.android.opentagviewer.service.web.AnisetteServerTesterService;
-import dev.wander.android.opentagviewer.service.web.CronetProvider;
+import dev.wander.android.opentagviewer.service.web.HttpClientProvider;
 import dev.wander.android.opentagviewer.service.web.GitHubService;
 import dev.wander.android.opentagviewer.service.web.GithubRawUtilityFilesService;
 import dev.wander.android.opentagviewer.ui.login.Apple2FACodeInputManager;
@@ -224,9 +224,9 @@ public class AppleLoginActivity extends AppCompatActivity {
                 UserAuthDataStore.getInstance(getApplicationContext()),
                 new AppCryptographyUtil());
 
-        var cronet = CronetProvider.getInstance(this.getApplicationContext());
+        final var httpClient = HttpClientProvider.getInstance();
         this.github = new GithubRawUtilityFilesService(
-                new GitHubService(cronet),
+                new GitHubService(httpClient),
                 UserCacheDataStore.getInstance(this.getApplicationContext())
         );
 
@@ -243,7 +243,7 @@ public class AppleLoginActivity extends AppCompatActivity {
                 this::onAnisetteUrlInputTyped
         );
 
-        this.anisetteServerTesterService = AppDependencies.serverTester(cronet);
+        this.anisetteServerTesterService = AppDependencies.serverTester(httpClient);
 
         this.authService = AppDependencies.authService();
 

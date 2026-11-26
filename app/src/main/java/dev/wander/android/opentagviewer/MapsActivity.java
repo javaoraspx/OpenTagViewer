@@ -43,10 +43,6 @@ import android.widget.PopupMenu;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.GoogleMap;
-import com.google.android.gms.maps.model.LatLng;
 
 import dev.wander.android.opentagviewer.ui.importing.ExternalDeviceImporter;
 import dev.wander.android.opentagviewer.ui.importing.ImportChooser;
@@ -59,14 +55,11 @@ import dev.wander.android.opentagviewer.ui.settings.AnisetteUpgradeDialog;
 import dev.wander.android.opentagviewer.ui.settings.ICloudSetupOfferDialog;
 import dev.wander.android.opentagviewer.ui.maps.CardSlots;
 import dev.wander.android.opentagviewer.ui.maps.IMapProvider;
-import dev.wander.android.opentagviewer.ui.maps.MapContainer;
 import dev.wander.android.opentagviewer.ui.maps.MapProviderFactory;
-import dev.wander.android.opentagviewer.ui.maps.GoogleMapProvider;
 import dev.wander.android.opentagviewer.ui.maps.MapMarker;
 import dev.wander.android.opentagviewer.ui.maps.MapPolyline;
 import dev.wander.android.opentagviewer.ui.maps.MarkerPalette;
 import dev.wander.android.opentagviewer.ui.maps.NearbyBatteryIcon;
-import com.google.android.libraries.places.api.Places;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -125,6 +118,7 @@ import dev.wander.android.opentagviewer.ui.maps.TagCardHelper;
 import dev.wander.android.opentagviewer.ui.maps.TagListSwiperHelper;
 import dev.wander.android.opentagviewer.util.android.CachedPhoneLocation;
 import dev.wander.android.opentagviewer.util.android.FusedPhoneLocation;
+import dev.wander.android.opentagviewer.util.android.LastKnownFix;
 import dev.wander.android.opentagviewer.util.LogCollectorUtil;
 import dev.wander.android.opentagviewer.util.MapUtils;
 import dev.wander.android.opentagviewer.util.TagOrder;
@@ -220,7 +214,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     }
 
     private IMapProvider mapProvider;
-    private GoogleMap map; // 保留用于向后兼容，逐步迁移
 
     private ActivityMapsBinding binding;
 
@@ -244,7 +237,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
 
     private UserSettings userSettings;
 
-    private FusedLocationProviderClient fusedLocationClient = null;
 
     private AddressLookup geocoder = null;
 
@@ -404,6 +396,10 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     private static final long SHOW_LONG_FETCH_BANNER_AFTER_MS = 6000L;
 
     private final Handler longFetchBannerHandler = new Handler(Looper.getMainLooper());
+
+    /** 定位读取的结果一律回到主线程处理，因为回调里会直接操作地图视图。 */
+    private final java.util.concurrent.Executor mainExecutor =
+            androidx.core.content.ContextCompat.getMainExecutor(this);
     private final Runnable showLongFetchBanner = () -> {
         this.bannerState.becameDue();
         this.updateLongFetchBanner();
@@ -579,9 +575,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 new CachedPhoneLocation(new FusedPhoneLocation(this.getApplicationContext())),
                 this::onHeardHere);
 
-        this.fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-
-        Places.initialize(this.getApplicationContext(), BuildConfig.MAPS_API_KEY);
         this.geocoder = AppDependencies.geocoder(
                 this.getApplicationContext(), Locale.getDefault());
 
@@ -611,13 +604,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
         // needs no key, so it stands in for Google rather than the app refusing to start.
         mapProviderType = MapProviderFactory.effectiveProvider(this, mapProviderType);
 
-        // **Before the new provider touches it.** Changing provider calls recreate(), and the
-        // FragmentManager restores Google's map fragment into this container while a plain view
-        // added by osmdroid or AMap is not restored - so without this, switching away from Google
-        // left the old map in place with the new one beside it, and only a full restart applied
-        // the setting. See MapContainer.
-        MapContainer.clear(this, R.id.map);
-
         IMapProvider tempProvider = MapProviderFactory.create(mapProviderType);
 
         // 初始化地图（注意：this.mapProvider 仅在 onMapReady 后赋值，避免初始化竞态）
@@ -633,11 +619,6 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     @Override
     public void onMapReady(IMapProvider provider) {
         this.mapProvider = provider;
-
-        // 如果是Google Maps，保留向后兼容
-        if (provider instanceof GoogleMapProvider) {
-            this.map = ((GoogleMapProvider) provider).getGoogleMap();
-        }
 
         mapProvider.setOnMapClickListener(this);
         mapProvider.setOnMarkerClickListener(this);
@@ -1192,30 +1173,28 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
         }
         if (ActivityCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) == PERMISSION_GRANTED
                 || ActivityCompat.checkSelfPermission(this, ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
-            this.fusedLocationClient.getLastLocation()
-                    .addOnSuccessListener(this, location -> {
-                        if (this.mapProvider == null) {
-                            return;
-                        }
-                        // Markers may have arrived while the fix was in flight - they own
-                        // the opening view, and a belated phone position must not stomp it.
-                        if (!this.currentMarkers.isEmpty()) {
-                            return;
-                        }
-                        if (location != null) {
-                            this.mapProvider.animateCamera(location.getLatitude(),
-                                    location.getLongitude(), this.initialZoom(), null);
-                        } else {
-                            this.applyLocaleOpeningView();
-                        }
-                    })
-                    .addOnFailureListener(this, e -> {
-                        // A failed fix is the same empty answer as a null one: fall back to
-                        // the locale view unless markers claimed the opening meanwhile.
-                        if (this.mapProvider != null && this.currentMarkers.isEmpty()) {
-                            this.applyLocaleOpeningView();
-                        }
-                    });
+            // One callback, always fired: a fix moves the camera, no fix falls back to the
+            // locale view. The old success/failure pair could drop both branches when the
+            // activity was already gone, leaving the map on the provider's default.
+            LastKnownFix.request(this, this.mainExecutor, location -> {
+                if (this.isFinishing() || this.isDestroyed()) {
+                    return;
+                }
+                if (this.mapProvider == null) {
+                    return;
+                }
+                // Markers may have arrived while the fix was in flight - they own the opening
+                // view, and a belated phone position must not stomp it.
+                if (!this.currentMarkers.isEmpty()) {
+                    return;
+                }
+                if (location != null) {
+                    this.mapProvider.animateCamera(location.getLatitude(),
+                            location.getLongitude(), this.initialZoom(), null);
+                } else {
+                    this.applyLocaleOpeningView();
+                }
+            });
             return;
         }
         this.applyLocaleOpeningView();
@@ -1252,28 +1231,29 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
 
     /** Animates to the phone's last known fix at {@code zoom}; does nothing without permission or a fix. */
     private void animateCameraToMyLocation(final float zoom) {
-        if (ActivityCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) == PERMISSION_GRANTED
-                || ActivityCompat.checkSelfPermission(this, ACCESS_COARSE_LOCATION) == PERMISSION_GRANTED) {
-
-            this.fusedLocationClient.getLastLocation()
-                    .addOnSuccessListener(this, location -> {
-                        // https://developer.android.com/develop/sensors-and-location/location/retrieve-current#last-known
-                        if (location == null) {
-                            Log.w(TAG, "Last location was returned as null!");
-                            return;
-                        }
-
-                        Log.d(TAG, "Navigating to current user position on the map...");
-                        if (this.mapProvider != null) {
-                            this.mapProvider.animateCamera(
-                                    location.getLatitude(),
-                                    location.getLongitude(),
-                                    zoom,
-                                    null
-                            );
-                        }
-                    });
+        if (ActivityCompat.checkSelfPermission(this, ACCESS_FINE_LOCATION) != PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, ACCESS_COARSE_LOCATION) != PERMISSION_GRANTED) {
+            return;
         }
+
+        LastKnownFix.request(this, this.mainExecutor, location -> {
+            if (this.isFinishing() || this.isDestroyed() || this.mapProvider == null) {
+                return;
+            }
+            if (location == null) {
+                // Nothing to move to. Said out loud rather than silently ignored, because the
+                // button visibly did nothing and the user deserves to know why.
+                Toast.makeText(this, R.string.location_unavailable, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Log.d(TAG, "Navigating to current user position on the map...");
+            this.mapProvider.animateCamera(
+                    location.getLatitude(),
+                    location.getLongitude(),
+                    zoom,
+                    null
+            );
+        });
     }
 
     public void onClickNavigateTo(View view) {
@@ -2567,9 +2547,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             }
 
             BeaconLocationReport lastLocation = maybeLast.get();
-            final Double lastLat = Optional.ofNullable(beaconData.getLastGeocodingLocation()).map(pos -> pos.latitude).orElse(null);
-            final Double lastLon = Optional.ofNullable(beaconData.getLastGeocodingLocation()).map(pos -> pos.longitude).orElse(null);
-            if (lastLat != null && lastLat == lastLocation.getLatitude() && lastLon != null && lastLon == lastLocation.getLongitude()) {
+            if (beaconData.geocodedAt(lastLocation.getLatitude(), lastLocation.getLongitude())) {
                 Log.d(TAG, "No need to update geocoding for beaconId=" + beaconId + " because previous geocoding is still valid (location has not updated since the last check)");
                 continue;
             }
@@ -2578,12 +2556,12 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                     .doOnNext(geocodingForLocation -> {
                         Log.d(TAG, "Got new reverse geocoding data for beaconId=" + beaconId);
                         beaconData.setGeocoding(Optional.ofNullable(geocodingForLocation).orElse(Collections.emptyList()));
-                        beaconData.setLastGeocodingLocation(new LatLng(lastLocation.getLatitude(), lastLocation.getLongitude()));
+                        beaconData.setLastGeocodingLocation(lastLocation.getLatitude(), lastLocation.getLongitude());
                     })
                     .doOnError(err -> {
                         Log.e(TAG, "Error occurred while trying to reverse geocode!", err);
                         beaconData.setGeocoding(Collections.emptyList());
-                        beaconData.setLastGeocodingLocation(null);
+                        beaconData.clearLastGeocodingLocation();
                     }).ignoreElements();
 
             tasks.add(asyncTask);
@@ -3391,7 +3369,25 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     private static final class BeaconData {
         @lombok.NonNull private BeaconInformation info;
         @lombok.NonNull private List<Address> geocoding;
-        private LatLng lastGeocodingLocation;
+        /** 上一次反查地理位置的坐标；两个都为 null 表示还没有查过。 */
+        private Double lastGeocodingLatitude;
+        private Double lastGeocodingLongitude;
+
+        boolean geocodedAt(final double latitude, final double longitude) {
+            return this.lastGeocodingLatitude != null && this.lastGeocodingLongitude != null
+                    && this.lastGeocodingLatitude == latitude
+                    && this.lastGeocodingLongitude == longitude;
+        }
+
+        void setLastGeocodingLocation(final double latitude, final double longitude) {
+            this.lastGeocodingLatitude = latitude;
+            this.lastGeocodingLongitude = longitude;
+        }
+
+        void clearLastGeocodingLocation() {
+            this.lastGeocodingLatitude = null;
+            this.lastGeocodingLongitude = null;
+        }
 
         public BeaconData(@lombok.NonNull BeaconInformation info, @lombok.NonNull List<Address> geocoding) {
             this.info = info;

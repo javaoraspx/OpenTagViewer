@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="location_unavailable">暂时获取不到当前位置</string>
     <string name="nav_header_title">Android Studio</string>
     <string name="nav_header_desc">导航标题</string>
     <string name="action_settings">设置</string>

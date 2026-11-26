@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="location_unavailable">現在地を取得できません</string>
     <string name="nav_header_title">Android Studio</string>
     <string name="nav_header_desc">ナビゲーション ヘッダー</string>
     <string name="action_settings">設定</string>

@@ -3,7 +3,7 @@ package dev.wander.android.opentagviewer.python;
 import android.content.Context;
 import android.location.Geocoder;
 
-import org.chromium.net.CronetEngine;
+import okhttp3.OkHttpClient;
 
 import androidx.annotation.VisibleForTesting;
 
@@ -77,7 +77,7 @@ public final class AppDependencies {
      * will let anybody past, so a test of the fall-back path would otherwise depend on a
      * stranger's machine being up.
      */
-    private static Function<CronetEngine, AnisetteServerTesterService> serverTesterFactory =
+    private static Function<OkHttpClient, AnisetteServerTesterService> serverTesterFactory =
             AnisetteServerTesterService::new;
 
     /**
@@ -240,13 +240,13 @@ public final class AppDependencies {
         return historyImporterFactory.apply(context);
     }
 
-    public static AnisetteServerTesterService serverTester(final CronetEngine engine) {
-        return serverTesterFactory.apply(engine);
+    public static AnisetteServerTesterService serverTester(final OkHttpClient client) {
+        return serverTesterFactory.apply(client);
     }
 
     @VisibleForTesting
     public static void replaceServerTester(final AnisetteServerTesterService replacement) {
-        serverTesterFactory = engine -> replacement;
+        serverTesterFactory = client -> replacement;
     }
 
     public static AnisetteSource anisette(

@@ -39,10 +39,11 @@ public class MapProviderSubstitutionTest {
 
     /** Without the hook, production behaviour is untouched. */
     @Test
-    public void bydefaultAReadProviderIsBuilt() {
+    public void bydefaultARealProviderIsBuilt() {
         MapProviderFactory.reset();
 
-        assertNotNull(MapProviderFactory.create(MapProviderFactory.PROVIDER_GOOGLE));
+        assertTrue(MapProviderFactory.create(MapProviderFactory.PROVIDER_AMAP)
+                instanceof AMapProvider);
     }
 
     /** With it, every screen gets the substitute regardless of the configured provider. */
@@ -51,8 +52,8 @@ public class MapProviderSubstitutionTest {
         final FakeMapProvider fake = new FakeMapProvider();
         MapProviderFactory.replaceWith(() -> fake);
 
-        assertSame(fake, MapProviderFactory.create(MapProviderFactory.PROVIDER_GOOGLE));
         assertSame(fake, MapProviderFactory.create(MapProviderFactory.PROVIDER_AMAP));
+        assertSame(fake, MapProviderFactory.create("google"));
         assertSame(fake, MapProviderFactory.create(null));
     }
 
@@ -63,8 +64,8 @@ public class MapProviderSubstitutionTest {
         MapProviderFactory.reset();
 
         assertTrue("reset must hand back a real provider again",
-                MapProviderFactory.create(MapProviderFactory.PROVIDER_GOOGLE)
-                        instanceof GoogleMapProvider);
+                MapProviderFactory.create(MapProviderFactory.PROVIDER_AMAP)
+                        instanceof AMapProvider);
     }
 
     /**

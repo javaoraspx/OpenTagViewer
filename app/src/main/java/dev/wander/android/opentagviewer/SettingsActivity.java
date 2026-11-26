@@ -84,7 +84,7 @@ import dev.wander.android.opentagviewer.db.repo.model.UserSettings;
 import dev.wander.android.opentagviewer.python.PythonAppleService;
 import dev.wander.android.opentagviewer.python.AppDependencies;
 import dev.wander.android.opentagviewer.service.web.AnisetteServerTesterService;
-import dev.wander.android.opentagviewer.service.web.CronetProvider;
+import dev.wander.android.opentagviewer.service.web.HttpClientProvider;
 import dev.wander.android.opentagviewer.service.web.GitHubService;
 import dev.wander.android.opentagviewer.service.web.GithubRawUtilityFilesService;
 import dev.wander.android.opentagviewer.service.web.sidestore.AnisetteServerSuggestion;
@@ -201,13 +201,13 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        var cronet = CronetProvider.getInstance(this.getApplicationContext());
+        final var httpClient = HttpClientProvider.getInstance();
         this.github = new GithubRawUtilityFilesService(
-                new GitHubService(cronet),
+                new GitHubService(httpClient),
                 UserCacheDataStore.getInstance(this.getApplicationContext())
         );
 
-        this.anisetteServerTesterService = new AnisetteServerTesterService(cronet);
+        this.anisetteServerTesterService = new AnisetteServerTesterService(httpClient);
 
         this.settingsRepository = new UserSettingsRepository(
                 UserSettingsDataStore.getInstance(this.getApplicationContext()));

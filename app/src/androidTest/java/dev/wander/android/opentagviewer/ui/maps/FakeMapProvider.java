@@ -150,8 +150,8 @@ public class FakeMapProvider implements IMapProvider {
      * <b>Hands back the id it was given, as both real providers do.</b>
      *
      * <p>This used to invent {@code "marker-0"}, {@code "marker-1"} and so on, which reads like a
-     * reasonable thing for a fake to do and is wrong: {@code GoogleMapProvider} and
-     * {@code AMapProvider} both {@code return marker.getId()} and key their own maps by it, and
+     * reasonable thing for a fake to do and is wrong: the real {@code AMapProvider} does
+     * {@code return marker.getId()} and keys its own map by it, and
      * {@code MapsActivity} relies on that - it calls {@code removeMarker(beaconId)} to replace a
      * tag's pin.
      *

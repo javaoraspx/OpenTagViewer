@@ -28,24 +28,10 @@ import androidx.databinding.DataBindingUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.android.gms.maps.CameraUpdateFactory;
-import com.google.android.gms.maps.GoogleMap;
-import com.google.android.gms.maps.OnMapReadyCallback;
-import com.google.android.gms.maps.SupportMapFragment;
-import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.LatLngBounds;
-import com.google.android.gms.maps.model.MapStyleOptions;
-import com.google.android.gms.maps.model.Marker;
-import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.Polyline;
-import com.google.android.gms.maps.model.PolylineOptions;
-
 import dev.wander.android.opentagviewer.ui.maps.IMapProvider;
 import dev.wander.android.opentagviewer.ui.maps.MapProviderFactory;
 import dev.wander.android.opentagviewer.ui.maps.MapMarker;
 import dev.wander.android.opentagviewer.ui.maps.MapPolyline;
-import dev.wander.android.opentagviewer.ui.maps.GoogleMapProvider;
-import dev.wander.android.opentagviewer.ui.maps.AMapProvider;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.datepicker.CalendarConstraints;
@@ -110,7 +96,6 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
     private static final long SEVEN_DAYS_IN_MS = DAY_IN_MS * 7;
 
     private IMapProvider mapProvider;
-    private GoogleMap map; // 保留用于向后兼容
 
     private BeaconRepository beaconRepo;
     private UserSettingsRepository userSettingsRepo;
@@ -227,11 +212,6 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
     public void onMapReady(IMapProvider provider) {
         this.mapProvider = provider;
 
-        // 如果是Google Maps，保留向后兼容
-        if (provider instanceof GoogleMapProvider) {
-            this.map = ((GoogleMapProvider) provider).getGoogleMap();
-        }
-
         mapProvider.setMapStyle(this.getPreferredMapStyle());
 
         // move to same position that we left when we went to the history page from the main page
@@ -247,24 +227,27 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
         if (this.mapProvider != null) {
             this.mapProvider.setMapStyle(this.getPreferredMapStyle());
         }
-        if (this.mapProvider instanceof AMapProvider) {
-            ((AMapProvider) this.mapProvider).onResume();
+        if (this.mapProvider != null) {
+            this.mapProvider.onResume();
         }
     }
-    
+
     @Override
     protected void onPause() {
         super.onPause();
-        if (this.mapProvider instanceof AMapProvider) {
-            ((AMapProvider) this.mapProvider).onPause();
+        if (this.mapProvider != null) {
+            this.mapProvider.onPause();
         }
     }
-    
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (this.mapProvider instanceof AMapProvider) {
-            ((AMapProvider) this.mapProvider).onDestroy();
+        // 必须先于 super 之后立刻释放，且只释放一次：高德 native 引擎在
+        // Activity 已经走完销毁流程后再被 destroy 会触发 native abort。
+        if (this.mapProvider != null) {
+            this.mapProvider.onDestroy();
+            this.mapProvider = null;
         }
     }
 
@@ -677,13 +660,20 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
                 MapPolyline.LatLng coord = coords.get(0);
                 this.animateCameraToPos(coord.getLatitude(), coord.getLongitude(), SINGLE_MARKER_ZOOM, null);
             } else {
-                var bounds = this.determineBoundsForCurrent();
-                this.animateCameraToBoundingBox(bounds, FOCUS_PADDING);
+                final List<MapPolyline.LatLng> bounds = this.determineBoundsForCurrent();
+                if (bounds != null) {
+                    this.mapProvider.fitBounds(bounds, FOCUS_PADDING, null);
+                }
             }
         }
     }
 
-    private LatLngBounds determineBoundsForCurrent() {
+    /**
+     * 当前位置列表的西南 / 东北两个角点，用作 fitBounds 的包围盒。
+     * 只用一个两元素列表而不是 Google 的 LatLngBounds —— 地图层已经是高德独占，
+     * 再引入 google maps 类型会把 1.9 MB 的 play-services-maps 拖回来。
+     */
+    private List<MapPolyline.LatLng> determineBoundsForCurrent() {
         Double latMax = null;
         Double latMin = null;
         Double lonMax = null;
@@ -700,10 +690,10 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
             return null;
         }
 
-        return new LatLngBounds(
-                new LatLng(latMin, lonMin),
-                new LatLng(latMax, lonMax)
-        );
+        final List<MapPolyline.LatLng> corners = new ArrayList<>(2);
+        corners.add(new MapPolyline.LatLng(latMin, lonMin));
+        corners.add(new MapPolyline.LatLng(latMax, lonMax));
+        return corners;
     }
 
     private void drawNewLines(final List<MapPolyline.LatLng> coords) {
@@ -795,25 +785,6 @@ public class HistoryViewActivity extends AppCompatActivity implements IMapProvid
             } else {
                 this.animateCameraToPos(clickedReport.getLatitude(), clickedReport.getLongitude(), SINGLE_MARKER_ZOOM, null);
             }
-        }
-    }
-
-    private void animateCameraToBoundingBox(final LatLngBounds bounds, int padding) {
-        if (this.mapProvider == null || bounds == null) return;
-        
-        // 将LatLngBounds转换为点列表
-        List<MapPolyline.LatLng> points = new ArrayList<>();
-        points.add(new MapPolyline.LatLng(bounds.southwest.latitude, bounds.southwest.longitude));
-        points.add(new MapPolyline.LatLng(bounds.northeast.latitude, bounds.northeast.longitude));
-        
-        // 使用GoogleMapProvider的特殊方法（如果可用）
-        if (this.mapProvider instanceof GoogleMapProvider) {
-            ((GoogleMapProvider) this.mapProvider).animateCameraToBounds(points, padding);
-        } else {
-            // 对于其他提供商，计算中心点和缩放级别
-            double centerLat = (bounds.southwest.latitude + bounds.northeast.latitude) / 2.0;
-            double centerLon = (bounds.southwest.longitude + bounds.northeast.longitude) / 2.0;
-            this.mapProvider.animateCamera(centerLat, centerLon, this.defaultZoom, null);
         }
     }
 

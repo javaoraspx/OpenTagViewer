@@ -1,12 +1,14 @@
 package dev.wander.android.opentagviewer;
 
 import android.app.Application;
+import android.content.Context;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.util.Log;
 
 import androidx.appcompat.app.AppCompatDelegate;
 
+import com.amap.api.maps.MapsInitializer;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 import com.google.android.material.color.DynamicColors;
@@ -24,8 +26,6 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
-import android.content.Context;
-import java.lang.reflect.Method;
 
 public class OpenAirTagApplication extends Application {
     private static final String TAG = OpenAirTagApplication.class.getSimpleName();
@@ -50,9 +50,8 @@ public class OpenAirTagApplication extends Application {
         // come first.
         Python.start(new AndroidPlatform(this));
 
-        // 高德地图SDK隐私合规初始化
-        // 必须在调用任何SDK接口之前调用
-        this.initAMapPrivacyCompliance();
+        // 高德地图 SDK 初始化（Key + 隐私合规），必须早于任何地图对象创建。
+        this.initAMap();
 
         this.setupTheme();
         this.setupSystemColors();
@@ -220,73 +219,63 @@ public class OpenAirTagApplication extends Application {
     }
 
     /**
-     * Hands the user's own AMap API key to the SDK.
-     * <br>
-     * Reflection is used throughout so the app still runs when the AMap SDK is absent,
-     * which is the normal case for anyone using Google Maps.
+     * 高德地图的初始化：API Key + 隐私合规。
+     *
+     * <p><b>直接调用 SDK，不再走反射。</b>以前整套都是反射，理由是"没有谷歌地图时也要能跑"，
+     * 但这个包已经只带高德了：反射换不来可选的依赖，只会让 R8 看不到调用点（于是整包保留、
+     * 体积变大、也更慢），并且把所有真实错误都吞成了一个 {@code catch (Exception)}。
+     *
+     * <p>Key 仍然先设：{@code MapsInitializer} 是静态状态，必须先于任何地图对象创建写入，
+     * 否则 SDK 会用空 Key 去请求瓦片，表现为一片空白而不是报错。
+     *
+     * <p>隐私合规是《个人信息保护法》与高德开放平台条款的共同要求：
+     * {@code updatePrivacyShow} / {@code updatePrivacyAgree} 必须在调用 SDK 任何其他接口之前
+     * 完成。参考：https://lbs.amap.com/api/android-sdk/guide/create-map/dev-attention
      */
-    private void applyUserSuppliedAMapKey() {
+    private void initAMap() {
+        // 这个包不带任何高德 Key：Key 按开发者账号签发并绑定包名与签名指纹，条款上也要求
+        // 持有者是应用的运营方，所以由用户在设置里自己填，与 Anisette 服务器地址的处理一致。
+        this.applyUserSuppliedAMapKey();
+
         try {
-            var settings = new UserSettingsRepository(
-                    UserSettingsDataStore.getInstance(this.getApplicationContext())
-            ).getUserSettings();
-
-            if (!settings.hasAmapApiKey()) {
-                // Expected unless the user has chosen AMap and supplied a key.
-                Log.d(TAG, "No user-supplied AMap API key; skipping AMap initialisation");
-                return;
-            }
-
-            Class<?> mapsInitializerClass = Class.forName("com.amap.api.maps.MapsInitializer");
-            mapsInitializerClass
-                    .getMethod("setApiKey", String.class)
-                    .invoke(null, settings.getAmapApiKey());
-
-            Log.i(TAG, "Applied user-supplied AMap API key");
-        } catch (ClassNotFoundException e) {
-            Log.d(TAG, "AMap SDK not present; skipping");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to apply the user-supplied AMap API key", e);
+            // isContains: 隐私政策是否包含高德开放平台隐私政策
+            // isShow: 隐私政策是否已弹窗告知用户
+            MapsInitializer.updatePrivacyShow(this, true, true);
+            // isAgree: 用户是否已同意隐私政策
+            MapsInitializer.updatePrivacyAgree(this, true);
+            Log.i(TAG, "AMap privacy compliance configured");
+        } catch (final Throwable e) {
+            // **Throwable, not Exception.** This runs in Application.onCreate, before any UI
+            // exists: an Error or a native failure escaping here kills the app on every launch
+            // with nothing on screen to explain it. A map that cannot start is a broken feature;
+            // an app that cannot start is a broken app.
+            Log.e(TAG, "Could not configure AMap privacy compliance", e);
         }
     }
 
-    /**
-     * 高德地图隐私合规设置
-     * 根据《个人信息保护法》要求，必须在调用SDK任何接口之前进行隐私合规配置
-     * 参考文档：https://lbs.amap.com/api/android-sdk/guide/create-map/dev-attention
-     */
-    private void initAMapPrivacyCompliance() {
+    /** 把用户自己填的高德 Key 交给 SDK（必须在创建地图之前）。 */
+    private void applyUserSuppliedAMapKey() {
+        final UserSettings settings;
         try {
-            // The app ships no AMap key. Keys are issued per developer account and bound to
-            // a package name and signing fingerprint, and AMap's terms expect the key holder
-            // to be the app's operator - so each user supplies their own in Settings, the
-            // same way the Anisette server URL works. Apply it before any SDK call.
-            this.applyUserSuppliedAMapKey();
+            settings = new UserSettingsRepository(
+                    UserSettingsDataStore.getInstance(this.getApplicationContext())
+            ).getUserSettings();
+        } catch (final Exception e) {
+            Log.e(TAG, "Could not read settings to look up the AMap API key", e);
+            return;
+        }
 
-            // 使用反射加载高德地图SDK，避免编译时依赖
-            Class<?> mapsInitializerClass = Class.forName("com.amap.api.maps.MapsInitializer");
-            
-            // 更新隐私合规弹窗状态
-            // updatePrivacyShow(Context context, boolean isContains, boolean isShow)
-            // isContains: 隐私权政策是否包含高德开平隐私权政策
-            // isShow: 隐私权政策是否弹窗展示告知用户
-            Method updatePrivacyShowMethod = mapsInitializerClass.getMethod(
-                    "updatePrivacyShow", Context.class, boolean.class, boolean.class);
-            updatePrivacyShowMethod.invoke(null, this, true, true);
-            
-            // 更新用户同意隐私政策状态
-            // updatePrivacyAgree(Context context, boolean isAgree)
-            // isAgree: 隐私权政策是否取得用户同意
-            Method updatePrivacyAgreeMethod = mapsInitializerClass.getMethod(
-                    "updatePrivacyAgree", Context.class, boolean.class);
-            updatePrivacyAgreeMethod.invoke(null, this, true);
-            
-            Log.i(TAG, "AMap privacy compliance initialized successfully");
-        } catch (ClassNotFoundException e) {
-            // 高德地图SDK未集成，这是正常情况
-            Log.d(TAG, "AMap SDK not found, privacy compliance initialization skipped");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize AMap privacy compliance", e);
+        if (settings == null || !settings.hasAmapApiKey()) {
+            // 用户的常态：还没在设置里填 Key。地图会显示空白底图，设置页里有引导。
+            Log.i(TAG, "No AMap API key configured yet; map tiles will be blank until one is set");
+            return;
+        }
+
+        try {
+            MapsInitializer.setApiKey(settings.getAmapApiKey().trim());
+            Log.i(TAG, "Applied user-supplied AMap API key");
+        } catch (final Throwable e) {
+            Log.e(TAG, "AMap rejected the supplied API key", e);
         }
     }
 

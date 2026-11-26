@@ -96,8 +96,8 @@ android {
         applicationId = "dev.wander.android.opentagviewer"
         minSdk = 24
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.2.2"
+        versionCode = 10
+        versionName = "1.2.3"
 
         // Null unless a build type sets it - see the debug block. A release is built from a tag
         // and its versionName is exactly right, so there is nothing a commit would add; the
@@ -226,7 +226,13 @@ android {
             manifestPlaceholders["appLabel"] = "@string/app_name"
             signingConfig = signingConfigs.getByName("release")
             isDebuggable = false
-            isMinifyEnabled = false
+
+            // **开启代码压缩。** 以前是关的，代价很大：反射时代的 AMap 适配层让 R8 无法
+            // 追踪调用点，dex 里躺着大量死代码（当时 dex 有 11.2 MB）。现在调用都是直接的，
+            // 加上高德 SDK 自带 consumer rules，压缩率很高。
+            isMinifyEnabled = true
+            // 同时裁剪无人引用的资源（多语言以外的 drawable/layout 之类）。
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -276,6 +282,15 @@ android {
 
     androidResources {
         // generateLocaleConfig = true
+
+        /**
+         * 只打包我们真正翻译过的语言。
+         *
+         * 依赖库（AndroidX、Material、高德）各自带几十种语言的字符串，`res/` 里大部分
+         * 条目是与本应用无关的翻译。限定成下面这些既缩小体积，也避免出现「一部分界面是
+         * 中文、一部分是印尼语」这种半吊子本地化。
+         */
+        localeFilters += listOf("en", "zh", "zh-rCN", "zh-rTW", "ja", "ko", "de", "fr")
     }
 
     testOptions {
@@ -525,7 +540,6 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.ktx)
     implementation(libs.navigation.fragment)
     implementation(libs.navigation.ui)
-    implementation(libs.play.services.maps)
     implementation(libs.android.room)
     implementation(libs.android.room.paging)
     implementation(libs.fasterxml.jackson.core)
@@ -535,26 +549,27 @@ dependencies {
     implementation(libs.networknt.json.schema.validator)
     implementation(libs.datastore.prefs)
     implementation(libs.datastore.prefs.rxjava3)
-    implementation(libs.google.cronet)
     implementation(libs.retrofit)
     implementation(libs.retrofit.jackson)
     implementation(libs.retrofit.rxjava3)
-    implementation(libs.google.cronet.retrofit)
-    implementation(libs.cronet.embedded)
-    implementation(libs.google.play.location)
-    implementation(libs.google.places)
+    // **OkHttp 取代了 Cronet。** 本应用只有两个 GET（拉 GitHub 上的 JSON、探一个
+    // Anisette 服务器），Cronet 的 embedded 构建为此带进 6.2 MB 的原生库
+    // （libcronet.143.0.7445.0.so），是仅次于高德 SDK 的第二大 .so。OkHttp 用系统自带的
+    // TLS 与 HTTP/2 栈，不增加任何原生代码。
+    implementation(libs.okhttp)
     implementation(libs.androidx.emoji)
     implementation(libs.androidx.emoji.views)
     implementation(libs.androidx.emoji.views.helper)
     implementation(libs.androidx.emoji.picker)
 
-    // 高德地图SDK - Android 3D地图 V9.8.3
-    // 参考文档：https://lbs.amap.com/api/android-sdk/gettingstarted
-    // 注意：3D地图SDK已包含定位功能，无需单独引入location SDK
+    // 高德地图 SDK —— 唯一的地图实现。
+    //
+    // `3dmap-location-search` 是 11.x 起的合包：3D 地图 + 定位 + 搜索在一个 AAR 里，只带
+    // armeabi-v7a / arm64-v8a 的原生库（没有 x86），所以换掉旧的 `com.amap.api:3dmap`
+    // （止于 10.0.600）既拿到了新版，也没让 APK 多出几个没用的 ABI。
+    //
+    // 参考：https://lbs.amap.com/api/android-sdk/gettingstarted
     implementation(libs.amap.map3d)
-    // OpenStreetMap via osmdroid: no API key, direct dependency (unlike AMap, which is loaded
-    // reflectively for licensing reasons this library has none of).
-    implementation(libs.osmdroid.android)
     implementation(libs.zip4j)
     implementation(libs.commons.csv)
 

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="location_unavailable">현재 위치를 가져올 수 없습니다</string>
     <string name="nav_header_title">Android Studio</string>
     <string name="nav_header_desc">아인크넷 헤더</string>
     <string name="action_settings">설정</string>

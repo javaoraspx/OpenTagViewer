@@ -27,6 +27,9 @@ androidDatastore = "1.1.3"
 rxJavaVer = "3.0.2"
 googleCornet = "18.1.0"
 retrofit = "2.11.0"
+# 代替 cronet-embedded 的传输层。Cronet 自带约 6.2 MB 的原生库，而这里只需要
+# 一个能发 GET 的 HTTP 客户端。
+okhttp = "4.12.0"
 googleCronetRetrofit = "0.1.0"
 annotation = "1.6.0"
 googlePlayServicesLocation = "21.3.0"
@@ -85,6 +88,7 @@ retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = 
 retrofit-jackson = { group = "com.squareup.retrofit2", name = "converter-jackson", version.ref = "retrofit" }
 retrofit-rxjava3 = { group = "com.squareup.retrofit2", name = "adapter-rxjava3", version.ref = "retrofit" }
 google-cronet-retrofit = { group = "com.google.net.cronet", name = "cronet-okhttp", version.ref = "googleCronetRetrofit" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 cronet-embedded = { group = "org.chromium.net", name = "cronet-embedded", version.ref = "cronetEmbedded" }
 annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
 google-play-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "googlePlayServicesLocation" }

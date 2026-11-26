@@ -1,13 +1,11 @@
 package dev.wander.android.opentagviewer.service.web;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.google.net.cronet.okhttptransport.CronetCallFactory;
-
-import org.chromium.net.CronetEngine;
 
 import io.reactivex.rxjava3.core.Observable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 import lombok.Data;
+import okhttp3.OkHttpClient;
 import retrofit2.Retrofit;
 import retrofit2.adapter.rxjava3.RxJava3CallAdapterFactory;
 import retrofit2.converter.jackson.JacksonConverterFactory;
@@ -15,10 +13,10 @@ import retrofit2.http.GET;
 
 public class AnisetteServerTesterService {
 
-    private final CronetEngine engine;
+    private final OkHttpClient client;
 
-    public AnisetteServerTesterService(CronetEngine engine) {
-        this.engine = engine;
+    public AnisetteServerTesterService(OkHttpClient client) {
+        this.client = client;
     }
 
     public Observable<AnisetteServerRootData> getIndex(final String anisetteServerRootUrl) {
@@ -26,7 +24,7 @@ public class AnisetteServerTesterService {
                 .baseUrl(anisetteServerRootUrl)
                 .addConverterFactory(JacksonConverterFactory.create())
                 .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
-                .callFactory(CronetCallFactory.newBuilder(engine).build())
+                .client(client)
                 .build();
 
         var service = retrofit.create(AnisetteServer.class);

@@ -1,674 +1,546 @@
 package dev.wander.android.opentagviewer.ui.maps;
 
 import android.app.Activity;
-import android.graphics.Bitmap;
+import android.content.Context;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+
+import com.amap.api.maps.AMap;
+import com.amap.api.maps.CameraUpdateFactory;
+import com.amap.api.maps.TextureMapView;
+import com.amap.api.maps.UiSettings;
+import com.amap.api.maps.model.BitmapDescriptorFactory;
+import com.amap.api.maps.model.CameraPosition;
+import com.amap.api.maps.model.LatLng;
+import com.amap.api.maps.model.LatLngBounds;
+import com.amap.api.maps.model.Marker;
+import com.amap.api.maps.model.MarkerOptions;
+import com.amap.api.maps.model.Polyline;
+import com.amap.api.maps.model.PolylineOptions;
 
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import android.content.Context;
-import android.os.Bundle;
-import android.view.ViewGroup;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 
 /**
- * 高德地图提供商实现
- * 
- * 高德地图Android SDK V9.8.3 (3D地图)
- * 发布日期：2023-12-06
- * 
- * SDK依赖配置：
- * dependencies {
- *     implementation 'com.amap.api:3dmap:9.8.3'
- *     // 注意：3D地图SDK已包含定位功能，无需单独引入location SDK
- * }
- * 
- * API Key配置：
- * 在AndroidManifest.xml中添加：
- * <meta-data
- *     android:name="com.amap.api.v2.apikey"
- *     android:value="YOUR_AMAP_API_KEY" />
- * 
- * 隐私合规：
- * 必须在Application的onCreate中调用隐私合规接口：
- * MapsInitializer.updatePrivacyShow(context, true, true);
- * MapsInitializer.updatePrivacyAgree(context, true);
- * 
- * 参考文档：
- * - 隐私合规：https://lbs.amap.com/api/android-sdk/guide/create-map/dev-attention
- * - SDK初始化：https://lbs.amap.com/api/android-sdk/guide/create-project/android-studio-create-project
- * - 入门指南：https://lbs.amap.com/api/android-sdk/gettingstarted
+ * 高德地图提供商实现（唯一实现）。
+ * <br>
+ * <b>Direct SDK calls, not reflection.</b> This class used to reach every AMap type through
+ * {@code Class.forName} and {@code getMethod}, because the SDK was optional at build time. It
+ * no longer is - {@code 3dmap-location-search} is a normal dependency and this is the only
+ * provider left - so the reflection bought nothing and cost three things:
+ * <ul>
+ *   <li><b>Speed.</b> A marker with an icon performed a dozen lookups, each scanning the whole
+ *       method table. Dragging the tag carousel redraws markers, and that ran on the main
+ *       thread.</li>
+ *   <li><b>Silence.</b> A renamed method became a caught exception and a marker that quietly
+ *       never appeared, so a broken SDK upgrade looked like "the map is empty".</li>
+ *   <li><b>Reachability.</b> R8 cannot see reflective calls, so it had to keep far more of the
+ *       SDK than was used, and the shrinker could not verify a single one of them.</li>
+ * </ul>
+ * Everything here is now checked by javac, runs at direct-call speed, and shrinks with the app.
+ * <br>
+ * Coordinate handling is unchanged: the app stores WGS-84 and AMap draws GCJ-02, so every
+ * point crossing this boundary is converted, in both directions.
  */
 public class AMapProvider implements IMapProvider {
-    private static final String TAG = AMapProvider.class.getSimpleName();
-    
+    private static final String TAG = "AMapProvider";
+
+    /** AMap draws its logo bottom-left; keep it clear of the tag carousel. */
+    private static final int LOGO_BOTTOM_MARGIN_DP = 96;
+
     private Activity activity;
     private OnMapReadyCallback callback;
-    
-    // 存储标记点和路径线
-    private final Map<String, Object> markers = new HashMap<>(); // 存储AMap.Marker对象
-    private final Map<String, Object> polylines = new HashMap<>(); // 存储Polyline对象
-    
-    // 监听器
+
+    private TextureMapView mapView;
+    private AMap aMap;
+    private UiSettings uiSettings;
+
+    private final Map<String, Marker> markers = new HashMap<>();
+    private final Map<Marker, String> markerIds = new IdentityHashMap<>();
+    private final Map<String, Polyline> polylines = new HashMap<>();
+
     private OnMapClickListener onMapClickListener;
     private OnMarkerClickListener onMarkerClickListener;
-    
-    // 高德地图对象
-    // 使用3D地图SDK：com.amap.api.maps.AMap
-    private Object aMap; // com.amap.api.maps.AMap
-    private View mapView; // com.amap.api.maps.TextureMapView
-    
+
     private MapStyle currentMapStyle = MapStyle.FOLLOW_SYSTEM;
-    
+
+    /**
+     * Set once the SDK view has been torn down.
+     * <br>
+     * Every mutating call checks it. A late callback - a fetch finishing after the user pressed
+     * back - would otherwise add a marker to a destroyed TextureMapView, and AMap answers that
+     * with a native abort rather than a Java exception, so it cannot be caught.
+     */
+    private volatile boolean destroyed = false;
+
     @Override
     public void initialize(Activity activity, int containerViewId, OnMapReadyCallback callback) {
         this.activity = activity;
         this.callback = callback;
-        
+
         try {
-            // 使用反射加载高德地图3D SDK，避免编译时依赖
-            // 高德地图3D地图使用 TextureMapView 或 MapView
-            // TextureMapView 性能更好，推荐使用
-            Class<?> mapViewClass = Class.forName("com.amap.api.maps.TextureMapView");
-            Object mapView = mapViewClass.getConstructor(Context.class)
-                    .newInstance(activity);
-            
-            this.mapView = (View) mapView;
-            
-            // 获取AMap对象
-            // com.amap.api.maps.AMap
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method getMapMethod = mapViewClass.getMethod("getMap");
-            this.aMap = getMapMethod.invoke(mapView);
-            
-            // 调用 onCreate 生命周期方法（高德地图必需）
-            // TextureMapView.onCreate(Bundle savedInstanceState)
-            Method onCreateMethod = mapViewClass.getMethod("onCreate", Bundle.class);
-            onCreateMethod.invoke(mapView, (Bundle) null);
-            Log.d(TAG, "AMap TextureMapView onCreate() called");
-            
-            // 添加到容器，并设置 LayoutParams 确保 View 填充整个容器
-            ViewGroup container = activity.findViewById(containerViewId);
+            this.mapView = new TextureMapView(activity);
+            this.aMap = this.mapView.getMap();
+            this.uiSettings = this.aMap.getUiSettings();
+
+            // AMap requires onCreate before the view is attached.
+            this.mapView.onCreate(null);
+
+            // A modern, phone-map look: pinch to zoom, no +/- buttons, no compass clutter.
+            this.uiSettings.setZoomControlsEnabled(false);
+
+            final ViewGroup container = activity.findViewById(containerViewId);
             if (container != null) {
-                ViewGroup.LayoutParams layoutParams = new ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                );
-                container.addView((View) mapView, layoutParams);
-                Log.d(TAG, "AMap view added to container with MATCH_PARENT layout params");
+                container.addView(this.mapView, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT));
             } else {
-                Log.e(TAG, "Container view not found for id: " + containerViewId);
+                Log.e(TAG, "Map container " + containerViewId + " was not found");
             }
-            
-            // 设置地图准备就绪回调
+
             if (this.callback != null) {
                 this.callback.onMapReady(this);
-                Log.d(TAG, "AMap onMapReady callback triggered");
             }
-            
-            Log.i(TAG, "AMap initialization completed successfully");
-            
         } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize AMap", e);
-            throw new RuntimeException("Failed to initialize AMap SDK. Please ensure AMap SDK is properly configured.", e);
+            // No key, no network, no GL surface: the screen must still open. A blank map with
+            // a log line beats an activity that dies on entry.
+            Log.e(TAG, "Failed to initialise the AMap view", e);
         }
     }
-    
+
     @Override
     public void setMapStyle(MapStyle mapStyle) {
         this.currentMapStyle = mapStyle == null ? MapStyle.FOLLOW_SYSTEM : mapStyle;
-        if (aMap == null) return;
+        if (this.aMap == null || this.destroyed) return;
 
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method setMapTypeMethod = aMapClass.getMethod("setMapType", int.class);
-
-            int normalMapType = aMapClass.getField("MAP_TYPE_NORMAL").getInt(null);
-            int nightMapType = aMapClass.getField("MAP_TYPE_NIGHT").getInt(null);
-            int mapType = this.shouldUseDarkMap() ? nightMapType : normalMapType;
-            setMapTypeMethod.invoke(aMap, mapType);
-
-            Log.d(TAG, "Map style set to " + this.currentMapStyle + ", dark=" + this.shouldUseDarkMap());
+            this.aMap.setMapType(this.shouldUseDarkMap() ? AMap.MAP_TYPE_NIGHT : AMap.MAP_TYPE_NORMAL);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set map style", e);
+            Log.w(TAG, "Failed to switch the map style", e);
         }
     }
 
     private boolean shouldUseDarkMap() {
-        if (this.currentMapStyle == MapStyle.DARK) {
-            return true;
-        }
-        if (this.currentMapStyle == MapStyle.LIGHT) {
-            return false;
-        }
-        if (this.activity == null) {
-            return false;
-        }
-        int currentNightMode = this.activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        return currentNightMode == Configuration.UI_MODE_NIGHT_YES;
+        if (this.currentMapStyle == MapStyle.DARK) return true;
+        if (this.currentMapStyle == MapStyle.LIGHT) return false;
+        if (this.activity == null) return false;
+        final int night = this.activity.getResources().getConfiguration().uiMode
+                & Configuration.UI_MODE_NIGHT_MASK;
+        return night == Configuration.UI_MODE_NIGHT_YES;
     }
-    
+
     @Override
     public String addMarker(MapMarker marker) {
-        if (aMap == null) {
-            Log.w(TAG, "AMap is not ready yet, cannot add marker");
+        if (this.aMap == null || this.destroyed) {
+            Log.w(TAG, "Map is not ready; marker " + marker.getId() + " was not added");
             return marker.getId();
         }
-        
+
         try {
-            // 坐标转换：WGS84 -> GCJ02
-            double[] gcj02 = CoordinateConverter.wgs84ToGcj02(marker.getLatitude(), marker.getLongitude());
-            
-            // 创建MarkerOptions
-            // com.amap.api.maps.model.MarkerOptions
-            Class<?> markerOptionsClass = Class.forName("com.amap.api.maps.model.MarkerOptions");
-            Object markerOptions = markerOptionsClass.newInstance();
-            
-            // 设置位置
-            // com.amap.api.maps.model.LatLng
-            Class<?> latLngClass = Class.forName("com.amap.api.maps.model.LatLng");
-            Object latLng = latLngClass.getConstructor(double.class, double.class)
-                    .newInstance(gcj02[0], gcj02[1]);
-            
-            Method positionMethod = markerOptionsClass.getMethod("position", latLngClass);
-            positionMethod.invoke(markerOptions, latLng);
-            
-            // 设置标题和片段
-            if (marker.getTitle() != null) {
-                Method titleMethod = markerOptionsClass.getMethod("title", String.class);
-                titleMethod.invoke(markerOptions, marker.getTitle());
-            }
-            if (marker.getSnippet() != null) {
-                Method snippetMethod = markerOptionsClass.getMethod("snippet", String.class);
-                snippetMethod.invoke(markerOptions, marker.getSnippet());
-            }
-            
-            // 设置图标
+            final double[] gcj02 = CoordinateConverter.wgs84ToGcj02(
+                    marker.getLatitude(), marker.getLongitude());
+
+            final MarkerOptions options = new MarkerOptions()
+                    .position(new LatLng(gcj02[0], gcj02[1]))
+                    .zIndex(marker.getZIndex());
+
+            if (marker.getTitle() != null) options.title(marker.getTitle());
+            if (marker.getSnippet() != null) options.snippet(marker.getSnippet());
+
             if (marker.getIconBitmap() != null) {
-                Class<?> bitmapDescriptorClass = Class.forName("com.amap.api.maps.model.BitmapDescriptor");
-                Class<?> bitmapDescriptorFactoryClass = Class.forName("com.amap.api.maps.model.BitmapDescriptorFactory");
-                Method fromBitmapMethod = bitmapDescriptorFactoryClass.getMethod("fromBitmap", Bitmap.class);
-                Object bitmapDescriptor = fromBitmapMethod.invoke(null, marker.getIconBitmap());
-                
-                Method iconMethod = markerOptionsClass.getMethod("icon", bitmapDescriptorClass);
-                iconMethod.invoke(markerOptions, bitmapDescriptor);
-            }
-            
-            // 设置绘制顺序
-            // Best-effort: AMap's MarkerOptions.zIndex(float) matches Google's, but this whole
-            // class talks to the SDK reflectively, so a rename in a future AMap version has to
-            // degrade to an unordered marker rather than no marker at all.
-            try {
-                Method zIndexMethod = markerOptionsClass.getMethod("zIndex", float.class);
-                zIndexMethod.invoke(markerOptions, marker.getZIndex());
-            } catch (Exception e) {
-                Log.w(TAG, "Could not set the marker draw order; overlapping tags may not raise on selection", e);
+                options.icon(BitmapDescriptorFactory.fromBitmap(marker.getIconBitmap()));
+            } else if (marker.getIconResourceId() != 0) {
+                options.icon(BitmapDescriptorFactory.fromResource(marker.getIconResourceId()));
             }
 
-            // 添加标记
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method addMarkerMethod = aMapClass.getMethod("addMarker", markerOptionsClass);
-            Object amapMarker = addMarkerMethod.invoke(aMap, markerOptions);
-            
-            markers.put(marker.getId(), amapMarker);
-            
+            final Marker amapMarker = this.aMap.addMarker(options);
+            if (amapMarker == null) return marker.getId();
+
+            this.markers.put(marker.getId(), amapMarker);
+            this.markerIds.put(amapMarker, marker.getId());
             return marker.getId();
         } catch (Exception e) {
-            Log.e(TAG, "Failed to add marker", e);
+            Log.e(TAG, "Failed to add marker " + marker.getId(), e);
             return marker.getId();
         }
     }
-    
+
     @Override
     public void removeMarker(String markerId) {
-        Object marker = markers.remove(markerId);
-        if (marker != null) {
-            try {
-                Method removeMethod = marker.getClass().getMethod("remove");
-                removeMethod.invoke(marker);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to remove marker", e);
-            }
+        final Marker marker = this.markers.remove(markerId);
+        if (marker == null) return;
+        this.markerIds.remove(marker);
+        try {
+            marker.remove();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to remove marker " + markerId, e);
         }
     }
-    
+
     @Override
     public void setMarkerZIndex(String markerId, float zIndex) {
-        Object marker = markers.get(markerId);
-        if (marker == null) {
-            Log.d(TAG, "No marker to re-order for markerId=" + markerId);
-            return;
-        }
+        final Marker marker = this.markers.get(markerId);
+        if (marker == null) return;
         try {
-            Method setZIndexMethod = marker.getClass().getMethod("setZIndex", float.class);
-            setZIndexMethod.invoke(marker, zIndex);
+            marker.setZIndex(zIndex);
         } catch (Exception e) {
             // Not fatal: the marker stays where it is, just possibly behind another one.
-            Log.w(TAG, "Failed to re-order marker for markerId=" + markerId, e);
+            Log.w(TAG, "Failed to re-order marker " + markerId, e);
         }
     }
 
     @Override
     public void clearMarkers() {
-        for (Object marker : markers.values()) {
+        for (Marker marker : this.markers.values()) {
             try {
-                Method removeMethod = marker.getClass().getMethod("remove");
-                removeMethod.invoke(marker);
+                marker.remove();
             } catch (Exception e) {
-                Log.e(TAG, "Failed to remove marker", e);
+                Log.w(TAG, "Failed to remove a marker while clearing", e);
             }
         }
-        markers.clear();
+        this.markers.clear();
+        this.markerIds.clear();
     }
-    
+
     @Override
     public String addPolyline(MapPolyline polyline) {
-        if (aMap == null) {
-            Log.w(TAG, "AMap is not ready yet, cannot add polyline");
-            return polyline.getId();
-        }
-        
+        if (this.aMap == null || this.destroyed) return polyline.getId();
+
         try {
-            // 坐标转换：WGS84 -> GCJ02
-            List<MapPolyline.LatLng> gcj02Points = polyline.getPoints().stream()
-                    .map(p -> {
-                        double[] gcj02 = CoordinateConverter.wgs84ToGcj02(p.getLatitude(), p.getLongitude());
-                        return new MapPolyline.LatLng(gcj02[0], gcj02[1]);
-                    })
-                    .collect(Collectors.toList());
-            
-            // 创建PolylineOptions
-            // com.amap.api.maps.model.PolylineOptions
-            Class<?> polylineOptionsClass = Class.forName("com.amap.api.maps.model.PolylineOptions");
-            Object polylineOptions = polylineOptionsClass.newInstance();
-            
-            // 添加点
-            // com.amap.api.maps.model.LatLng
-            Class<?> latLngClass = Class.forName("com.amap.api.maps.model.LatLng");
-            Method addMethod = polylineOptionsClass.getMethod("add", latLngClass);
-            
-            for (MapPolyline.LatLng point : gcj02Points) {
-                Object latLng = latLngClass.getConstructor(double.class, double.class)
-                        .newInstance(point.getLatitude(), point.getLongitude());
-                addMethod.invoke(polylineOptions, latLng);
+            final List<MapPolyline.LatLng> points = polyline.getPoints();
+            if (points == null || points.size() < 2) return polyline.getId();
+
+            final LatLng[] converted = new LatLng[points.size()];
+            for (int i = 0; i < points.size(); i++) {
+                final MapPolyline.LatLng point = points.get(i);
+                final double[] gcj02 = CoordinateConverter.wgs84ToGcj02(
+                        point.getLatitude(), point.getLongitude());
+                converted[i] = new LatLng(gcj02[0], gcj02[1]);
             }
-            
-            // 设置颜色和宽度
-            Method colorMethod = polylineOptionsClass.getMethod("color", int.class);
-            colorMethod.invoke(polylineOptions, polyline.getColor());
-            
-            Method widthMethod = polylineOptionsClass.getMethod("width", float.class);
-            widthMethod.invoke(polylineOptions, polyline.getWidth());
-            
-            // 添加路径线
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method addPolylineMethod = aMapClass.getMethod("addPolyline", polylineOptionsClass);
-            Object amapPolyline = addPolylineMethod.invoke(aMap, polylineOptions);
-            
-            polylines.put(polyline.getId(), amapPolyline);
-            
+
+            final PolylineOptions options = new PolylineOptions()
+                    .add(converted)
+                    .color(polyline.getColor())
+                    .width(polyline.getWidth());
+
+            final Polyline amapPolyline = this.aMap.addPolyline(options);
+            if (amapPolyline == null) return polyline.getId();
+
+            this.polylines.put(polyline.getId(), amapPolyline);
             return polyline.getId();
         } catch (Exception e) {
-            Log.e(TAG, "Failed to add polyline", e);
+            Log.e(TAG, "Failed to add polyline " + polyline.getId(), e);
             return polyline.getId();
         }
     }
-    
+
     @Override
     public void removePolyline(String polylineId) {
-        Object polyline = polylines.remove(polylineId);
-        if (polyline != null) {
-            try {
-                Method removeMethod = polyline.getClass().getMethod("remove");
-                removeMethod.invoke(polyline);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to remove polyline", e);
-            }
+        final Polyline polyline = this.polylines.remove(polylineId);
+        if (polyline == null) return;
+        try {
+            polyline.remove();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to remove polyline " + polylineId, e);
         }
     }
-    
+
     @Override
     public void clearPolylines() {
-        for (Object polyline : polylines.values()) {
+        for (Polyline polyline : this.polylines.values()) {
             try {
-                Method removeMethod = polyline.getClass().getMethod("remove");
-                removeMethod.invoke(polyline);
+                polyline.remove();
             } catch (Exception e) {
-                Log.e(TAG, "Failed to remove polyline", e);
+                Log.w(TAG, "Failed to remove a polyline while clearing", e);
             }
         }
-        polylines.clear();
+        this.polylines.clear();
     }
-    
+
     @Override
     public void moveCamera(double latitude, double longitude, float zoom) {
-        if (aMap == null) return;
-        
+        if (!this.isUsable()) return;
         try {
-            // 坐标转换：WGS84 -> GCJ02
-            double[] gcj02 = CoordinateConverter.wgs84ToGcj02(latitude, longitude);
-            
-            // com.amap.api.maps.model.LatLng
-            Class<?> latLngClass = Class.forName("com.amap.api.maps.model.LatLng");
-            Object latLng = latLngClass.getConstructor(double.class, double.class)
-                    .newInstance(gcj02[0], gcj02[1]);
-            
-            // com.amap.api.maps.CameraUpdateFactory
-            Class<?> cameraUpdateFactoryClass = Class.forName("com.amap.api.maps.CameraUpdateFactory");
-            Method newLatLngZoomMethod = cameraUpdateFactoryClass.getMethod(
-                    "newLatLngZoom", latLngClass, float.class);
-            Object cameraUpdate = newLatLngZoomMethod.invoke(null, latLng, zoom);
-            
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method moveCameraMethod = aMapClass.getMethod("moveCamera", 
-                    Class.forName("com.amap.api.maps.CameraUpdate"));
-            moveCameraMethod.invoke(aMap, cameraUpdate);
+            this.aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(this.toGcj02(latitude, longitude), zoom));
         } catch (Exception e) {
-            Log.e(TAG, "Failed to move camera", e);
+            Log.e(TAG, "Failed to move the camera", e);
         }
     }
-    
+
     @Override
     public void animateCamera(double latitude, double longitude, float zoom, Runnable callback) {
-        if (aMap == null) return;
-        
+        if (!this.isUsable()) return;
         try {
-            // 坐标转换：WGS84 -> GCJ02
-            double[] gcj02 = CoordinateConverter.wgs84ToGcj02(latitude, longitude);
-            
-            // com.amap.api.maps.model.LatLng
-            Class<?> latLngClass = Class.forName("com.amap.api.maps.model.LatLng");
-            Object latLng = latLngClass.getConstructor(double.class, double.class)
-                    .newInstance(gcj02[0], gcj02[1]);
-            
-            // com.amap.api.maps.CameraUpdateFactory
-            Class<?> cameraUpdateFactoryClass = Class.forName("com.amap.api.maps.CameraUpdateFactory");
-            Method newLatLngZoomMethod = cameraUpdateFactoryClass.getMethod(
-                    "newLatLngZoom", latLngClass, float.class);
-            Object cameraUpdate = newLatLngZoomMethod.invoke(null, latLng, zoom);
-            
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            
-            if (callback != null) {
-                // 创建回调
-                // com.amap.api.maps.AMap.CancelableCallback
-                Class<?> cancelableCallbackClass = Class.forName("com.amap.api.maps.AMap$CancelableCallback");
-                Object callbackObj = Proxy.newProxyInstance(
-                        cancelableCallbackClass.getClassLoader(),
-                        new Class[]{cancelableCallbackClass},
-                        (proxy, method, args) -> {
-                            if (method.getName().equals("onFinish") || method.getName().equals("onCancel")) {
-                                callback.run();
-                            }
-                            return null;
-                        }
-                );
-                
-                Method animateCameraMethod = aMapClass.getMethod("animateCamera",
-                        Class.forName("com.amap.api.maps.CameraUpdate"), 
-                        long.class, 
-                        cancelableCallbackClass);
-                animateCameraMethod.invoke(aMap, cameraUpdate, 1000L, callbackObj);
-            } else {
-                Method animateCameraMethod = aMapClass.getMethod("animateCamera",
-                        Class.forName("com.amap.api.maps.CameraUpdate"));
-                animateCameraMethod.invoke(aMap, cameraUpdate);
+            final com.amap.api.maps.CameraUpdate update =
+                    CameraUpdateFactory.newLatLngZoom(this.toGcj02(latitude, longitude), zoom);
+
+            if (callback == null) {
+                this.aMap.animateCamera(update);
+                return;
             }
+            this.aMap.animateCamera(update, 1000L, new AMap.CancelableCallback() {
+                @Override
+                public void onFinish() {
+                    callback.run();
+                }
+
+                @Override
+                public void onCancel() {
+                    // The movement was interrupted by another one, which will report its own
+                    // completion. Running the callback here would double-fire the caller's
+                    // "I've arrived" work - HistoryViewActivity uses it to drop a padding
+                    // override, and doing that twice leaves the map padded for the sheet.
+                }
+            });
         } catch (Exception e) {
-            Log.e(TAG, "Failed to animate camera", e);
+            Log.e(TAG, "Failed to animate the camera", e);
+            if (callback != null) callback.run();
         }
     }
-    
+
+    /**
+     * Frame a set of points.
+     * <br>
+     * AMap computes the zoom that fits for us, which the shared fallback cannot: it centres on
+     * the midpoint at a fixed zoom, so a history stretching across a province lands outside the
+     * screen.
+     */
+    @Override
+    public void fitBounds(List<MapPolyline.LatLng> points, int paddingPx, Runnable callback) {
+        if (!this.isUsable() || points == null || points.isEmpty()) {
+            if (callback != null) callback.run();
+            return;
+        }
+
+        try {
+            final LatLngBounds.Builder builder = LatLngBounds.builder();
+            for (MapPolyline.LatLng point : points) {
+                builder.include(this.toGcj02(point.getLatitude(), point.getLongitude()));
+            }
+            final com.amap.api.maps.CameraUpdate update =
+                    CameraUpdateFactory.newLatLngBounds(builder.build(), paddingPx);
+
+            if (callback == null) {
+                this.aMap.animateCamera(update);
+                return;
+            }
+            this.aMap.animateCamera(update, 1000L, new AMap.CancelableCallback() {
+                @Override
+                public void onFinish() {
+                    callback.run();
+                }
+
+                @Override
+                public void onCancel() {
+                    // See animateCamera: an interrupted move is followed by another one.
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to frame the given bounds", e);
+            if (callback != null) callback.run();
+        }
+    }
+
     @Override
     public void setOnMapClickListener(OnMapClickListener listener) {
         this.onMapClickListener = listener;
-        if (aMap == null) return;
-        
+        if (this.aMap == null || this.destroyed) return;
+
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Class<?> onMapClickListenerClass = Class.forName("com.amap.api.maps.AMap$OnMapClickListener");
-            
-            Object listenerObj = Proxy.newProxyInstance(
-                    onMapClickListenerClass.getClassLoader(),
-                    new Class[]{onMapClickListenerClass},
-                    (proxy, method, args) -> {
-                        if (method.getName().equals("onMapClick")) {
-                            Object latLng = args[0];
-                            // 3D SDK中，LatLng的latitude和longitude是public字段
-                            Field latitudeField = latLng.getClass().getField("latitude");
-                            Field longitudeField = latLng.getClass().getField("longitude");
-                            double lat = latitudeField.getDouble(latLng);
-                            double lon = longitudeField.getDouble(latLng);
-                            
-                            // 坐标转换：GCJ02 -> WGS84
-                            double[] wgs84 = CoordinateConverter.gcj02ToWgs84(lat, lon);
-                            if (onMapClickListener != null) {
-                                onMapClickListener.onMapClick(wgs84[0], wgs84[1]);
-                            }
-                        }
-                        return null;
-                    }
-            );
-            
-            Method setOnMapClickListenerMethod = aMapClass.getMethod("setOnMapClickListener", onMapClickListenerClass);
-            setOnMapClickListenerMethod.invoke(aMap, listenerObj);
+            this.aMap.setOnMapClickListener(latLng -> {
+                if (latLng == null) return;
+                final OnMapClickListener target = this.onMapClickListener;
+                if (target == null) return;
+                // GCJ-02 back to WGS-84: everything the app stores or reports is WGS-84.
+                final double[] wgs84 = CoordinateConverter.gcj02ToWgs84(
+                        latLng.latitude, latLng.longitude);
+                target.onMapClick(wgs84[0], wgs84[1]);
+            });
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set map click listener", e);
+            Log.w(TAG, "Failed to set the map click listener", e);
         }
     }
-    
+
     @Override
     public void setOnMarkerClickListener(OnMarkerClickListener listener) {
         this.onMarkerClickListener = listener;
-        if (aMap == null) return;
-        
+        if (this.aMap == null || this.destroyed) return;
+
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Class<?> onMarkerClickListenerClass = Class.forName("com.amap.api.maps.AMap$OnMarkerClickListener");
-            
-            Object listenerObj = Proxy.newProxyInstance(
-                    onMarkerClickListenerClass.getClassLoader(),
-                    new Class[]{onMarkerClickListenerClass},
-                    (proxy, method, args) -> {
-                        if (method.getName().equals("onMarkerClick")) {
-                            Object marker = args[0];
-                            String markerId = findMarkerId(marker);
-                            if (onMarkerClickListener != null) {
-                                return onMarkerClickListener.onMarkerClick(markerId);
-                            }
-                        }
-                        return false;
-                    }
-            );
-            
-            Method setOnMarkerClickListenerMethod = aMapClass.getMethod("setOnMarkerClickListener", onMarkerClickListenerClass);
-            setOnMarkerClickListenerMethod.invoke(aMap, listenerObj);
+            this.aMap.setOnMarkerClickListener(marker -> {
+                final OnMarkerClickListener target = this.onMarkerClickListener;
+                final String id = marker == null ? null : this.markerIds.get(marker);
+                // Consume the tap only when somebody handled it, so AMap's default info
+                // window still appears for markers this class did not create.
+                return id != null && target != null && target.onMarkerClick(id);
+            });
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set marker click listener", e);
+            Log.w(TAG, "Failed to set the marker click listener", e);
         }
     }
-    
-    private String findMarkerId(Object marker) {
-        for (Map.Entry<String, Object> entry : markers.entrySet()) {
-            if (entry.getValue().equals(marker)) {
-                return entry.getKey();
-            }
-        }
-        return null;
-    }
-    
+
     @Override
     public void setPadding(int left, int top, int right, int bottom) {
-        // 高德地图可能不支持setPadding，或者API不同
-        // 需要根据实际SDK调整
-        Log.d(TAG, "setPadding called: " + left + ", " + top + ", " + right + ", " + bottom);
+        // AMap has no camera padding: the camera centre is the view centre. The part that
+        // matters visually is its logo, which would sit under the tag cards, so lift that.
+        if (this.uiSettings == null || this.activity == null) return;
+        try {
+            final float density = this.activity.getResources().getDisplayMetrics().density;
+            this.uiSettings.setLogoBottomMargin(Math.max(bottom, (int) (LOGO_BOTTOM_MARGIN_DP * density)));
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to move the map logo", e);
+        }
     }
-    
+
     @Override
     public CameraPosition getCameraPosition() {
-        if (aMap == null) return null;
-        
+        if (!this.isUsable()) return null;
+
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method getCameraPositionMethod = aMapClass.getMethod("getCameraPosition");
-            Object cameraPosition = getCameraPositionMethod.invoke(aMap);
-            
-            // com.amap.api.maps.model.CameraPosition
-            // 3D SDK中，target是public字段
-            Field targetField = cameraPosition.getClass().getField("target");
-            Object target = targetField.get(cameraPosition);
-            
-            // LatLng的latitude和longitude是public字段
-            Field latitudeField = target.getClass().getField("latitude");
-            Field longitudeField = target.getClass().getField("longitude");
-            double lat = latitudeField.getDouble(target);
-            double lon = longitudeField.getDouble(target);
-            
-            // zoom也是public字段
-            Field zoomField = cameraPosition.getClass().getField("zoom");
-            float zoom = zoomField.getFloat(cameraPosition);
-            
-            // 坐标转换：GCJ02 -> WGS84
-            double[] wgs84 = CoordinateConverter.gcj02ToWgs84(lat, lon);
-            
-            return new CameraPosition(wgs84[0], wgs84[1], zoom);
+            // 全限定：本类实现了 IMapProvider，同名的 CameraPosition 会解析到接口里那个。
+            final com.amap.api.maps.model.CameraPosition position =
+                    this.aMap.getCameraPosition();
+            if (position == null || position.target == null) return null;
+
+            final double[] wgs84 = CoordinateConverter.gcj02ToWgs84(
+                    position.target.latitude, position.target.longitude);
+            return new CameraPosition(wgs84[0], wgs84[1], position.zoom);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to get camera position", e);
+            Log.e(TAG, "Failed to read the camera position", e);
             return null;
         }
     }
-    
+
     @Override
     public void setMyLocationButtonEnabled(boolean enabled) {
-        if (aMap == null) return;
+        if (this.uiSettings == null || this.destroyed) return;
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Class<?> uiSettingsClass = Class.forName("com.amap.api.maps.UiSettings");
-            Method getUiSettingsMethod = aMapClass.getMethod("getUiSettings");
-            Object uiSettings = getUiSettingsMethod.invoke(aMap);
-            
-            Method setMyLocationButtonEnabledMethod = uiSettingsClass.getMethod("setMyLocationButtonEnabled", boolean.class);
-            setMyLocationButtonEnabledMethod.invoke(uiSettings, enabled);
+            this.uiSettings.setMyLocationButtonEnabled(enabled);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set my location button enabled", e);
+            Log.w(TAG, "Failed to set the my-location button", e);
         }
     }
-    
+
     @Override
     public void setMyLocationEnabled(boolean enabled) {
-        if (aMap == null) return;
+        if (!this.isUsable()) return;
         try {
-            // Reflection, like everything else here: AMap is loaded at runtime only when the user
-            // supplies a key, so this class must compile and run without its types on the path.
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Method setMyLocationEnabled =
-                    aMapClass.getMethod("setMyLocationEnabled", boolean.class);
-            setMyLocationEnabled.invoke(aMap, enabled);
+            this.aMap.setMyLocationEnabled(enabled);
         } catch (Exception e) {
-            // Includes the SecurityException a revoked permission raises. The map is still usable
+            // Includes the SecurityException a revoked permission raises. The map is usable
             // without the dot, so this is reported and not thrown.
-            Log.e(TAG, "Failed to set my location enabled", e);
+            Log.w(TAG, "Failed to toggle the my-location dot", e);
         }
     }
 
     @Override
     public void setRotateGesturesEnabled(boolean enabled) {
-        if (aMap == null) return;
+        if (this.uiSettings == null || this.destroyed) return;
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Class<?> uiSettingsClass = Class.forName("com.amap.api.maps.UiSettings");
-            Method getUiSettingsMethod = aMapClass.getMethod("getUiSettings");
-            Object uiSettings = getUiSettingsMethod.invoke(aMap);
-            
-            Method setRotateGesturesEnabledMethod = uiSettingsClass.getMethod("setRotateGesturesEnabled", boolean.class);
-            setRotateGesturesEnabledMethod.invoke(uiSettings, enabled);
+            this.uiSettings.setRotateGesturesEnabled(enabled);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set rotate gestures enabled", e);
+            Log.w(TAG, "Failed to toggle rotate gestures", e);
         }
     }
-    
+
     @Override
     public void setCompassEnabled(boolean enabled) {
-        if (aMap == null) return;
+        if (this.uiSettings == null || this.destroyed) return;
         try {
-            Class<?> aMapClass = Class.forName("com.amap.api.maps.AMap");
-            Class<?> uiSettingsClass = Class.forName("com.amap.api.maps.UiSettings");
-            Method getUiSettingsMethod = aMapClass.getMethod("getUiSettings");
-            Object uiSettings = getUiSettingsMethod.invoke(aMap);
-            
-            Method setCompassEnabledMethod = uiSettingsClass.getMethod("setCompassEnabled", boolean.class);
-            setCompassEnabledMethod.invoke(uiSettings, enabled);
+            this.uiSettings.setCompassEnabled(enabled);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to set compass enabled", e);
+            Log.w(TAG, "Failed to toggle the compass", e);
         }
     }
-    
+
     @Override
     public void setMapToolbarEnabled(boolean enabled) {
-        // 高德地图可能没有工具栏，或者API不同
-        Log.d(TAG, "setMapToolbarEnabled called: " + enabled);
+        // AMap has no equivalent toolbar; the app draws its own buttons.
     }
-    
+
     @Override
     public void clear() {
         clearMarkers();
         clearPolylines();
     }
-    
+
     @Override
     public View getMapView() {
-        return mapView;
+        return this.mapView;
     }
-    
-    /**
-     * 在Activity的onResume中调用
-     */
+
     @Override
     public void onResume() {
-        if (mapView != null) {
-            try {
-                Method onResumeMethod = mapView.getClass().getMethod("onResume");
-                onResumeMethod.invoke(mapView);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to call onResume on map view", e);
-            }
+        if (this.mapView == null || this.destroyed) return;
+        try {
+            this.mapView.onResume();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to resume the map view", e);
         }
     }
-    
-    /**
-     * 在Activity的onPause中调用
-     */
+
     @Override
     public void onPause() {
-        if (mapView != null) {
-            try {
-                Method onPauseMethod = mapView.getClass().getMethod("onPause");
-                onPauseMethod.invoke(mapView);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to call onPause on map view", e);
-            }
+        if (this.mapView == null || this.destroyed) return;
+        try {
+            this.mapView.onPause();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to pause the map view", e);
         }
     }
-    
+
     /**
-     * 在Activity的onDestroy中调用
+     * Tear the SDK view down exactly once, and detach it first.
+     * <br>
+     * <b>Order matters.</b> {@code onDestroy} releases the GL surface and the native engine; a
+     * view still attached to a window at that point is destroyed by the framework later, in a
+     * different order, and the native side then frees objects the engine already freed. The
+     * dump this app shipped for months was that abort. Removing the view from its parent first
+     * means the framework never touches it again.
      */
     @Override
     public void onDestroy() {
-        if (mapView != null) {
-            try {
-                Method onDestroyMethod = mapView.getClass().getMethod("onDestroy");
-                onDestroyMethod.invoke(mapView);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to call onDestroy on map view", e);
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        this.clearMarkers();
+        this.clearPolylines();
+
+        final TextureMapView view = this.mapView;
+        this.mapView = null;
+        this.aMap = null;
+        this.uiSettings = null;
+
+        if (view == null) return;
+
+        try {
+            if (view.getParent() instanceof ViewGroup) {
+                ((ViewGroup) view.getParent()).removeView(view);
             }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to detach the map view", e);
+        }
+
+        try {
+            view.onDestroy();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to destroy the map view", e);
         }
     }
-}
 
+    private boolean isUsable() {
+        return this.aMap != null && !this.destroyed;
+    }
+
+    private LatLng toGcj02(double latitude, double longitude) {
+        final double[] gcj02 = CoordinateConverter.wgs84ToGcj02(latitude, longitude);
+        return new LatLng(gcj02[0], gcj02[1]);
+    }
+}

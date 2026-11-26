@@ -3,11 +3,9 @@ package dev.wander.android.opentagviewer.service.web;
 import android.util.Log;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.net.cronet.okhttptransport.CronetCallFactory;
-
-import org.chromium.net.CronetEngine;
 
 import dev.wander.android.opentagviewer.service.web.retrofit.GitHubRawUsercontentService;
+import okhttp3.OkHttpClient;
 import io.reactivex.rxjava3.core.Observable;
 import retrofit2.Retrofit;
 import retrofit2.adapter.rxjava3.RxJava3CallAdapterFactory;
@@ -25,12 +23,12 @@ public class GitHubService {
 
     private ObjectMapper mapper = new ObjectMapper();
 
-    public GitHubService(CronetEngine engine) {
+    public GitHubService(OkHttpClient client) {
         Retrofit retrofit = new Retrofit.Builder()
                 .baseUrl(GITHUB_RAWUSERCONTENT_BASE_URL)
                 .addConverterFactory(JacksonConverterFactory.create())
                 .addCallAdapterFactory(RxJava3CallAdapterFactory.create())
-                .callFactory(CronetCallFactory.newBuilder(engine).build())
+                .client(client)
                 .build();
 
         this.rawUsercontentService = retrofit.create(GitHubRawUsercontentService.class);

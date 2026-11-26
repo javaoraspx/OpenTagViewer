@@ -3,12 +3,13 @@ package dev.wander.android.opentagviewer.ui.maps;
 import android.app.Activity;
 import android.view.View;
 
+import java.util.List;
+
 /**
  * 地图提供商抽象接口
  * 定义统一的地图操作API,支持多地图SDK切换
  * 
  * 实现类:
- * - GoogleMapProvider: Google Maps实现
  * - AMapProvider: 高德地图实现
  */
 public interface IMapProvider {
@@ -90,6 +91,48 @@ public interface IMapProvider {
      * @param callback 动画完成回调(可为null)
      */
     void animateCamera(double latitude, double longitude, float zoom, Runnable callback);
+
+    /**
+     * Frame a set of points, zooming out until they all fit.
+     * <br>
+     * A default rather than abstract, because a provider whose SDK has no "fit bounds" can still
+     * answer sensibly - centre on the middle at a fixed zoom - and that is what this class did
+     * before the call existed. A provider that can do better (AMap computes the zoom itself)
+     * overrides it.
+     *
+     * @param points    WGS-84 points to frame; empty means "nothing to do"
+     * @param paddingPx space to leave around the result, in pixels
+     * @param callback  run when the camera settles, or null
+     */
+    default void fitBounds(List<MapPolyline.LatLng> points, int paddingPx, Runnable callback) {
+        if (points == null || points.isEmpty()) {
+            if (callback != null) callback.run();
+            return;
+        }
+
+        double latMin = Double.MAX_VALUE;
+        double latMax = -Double.MAX_VALUE;
+        double lonMin = Double.MAX_VALUE;
+        double lonMax = -Double.MAX_VALUE;
+        for (MapPolyline.LatLng point : points) {
+            latMin = Math.min(latMin, point.getLatitude());
+            latMax = Math.max(latMax, point.getLatitude());
+            lonMin = Math.min(lonMin, point.getLongitude());
+            lonMax = Math.max(lonMax, point.getLongitude());
+        }
+
+        final double span = Math.max(latMax - latMin, lonMax - lonMin);
+        // Roughly: z16 is a few hundred metres across, and each level doubles that. Only a
+        // fallback, so a simple rule beats a precise one nobody can check.
+        float zoom = 16.0f;
+        if (span > 0.0005) zoom = 15.0f;
+        if (span > 0.002) zoom = 13.0f;
+        if (span > 0.01) zoom = 11.0f;
+        if (span > 0.05) zoom = 9.0f;
+        if (span > 0.2) zoom = 7.0f;
+
+        animateCamera((latMin + latMax) / 2.0, (lonMin + lonMax) / 2.0, zoom, callback);
+    }
     
     /**
      * 设置地图点击监听器
@@ -193,8 +236,8 @@ public interface IMapProvider {
      * copied them. That is the branching {@code IMapProvider} exists to prevent (AGENTS.md rule
      * 7), and a new implementation should need no edit in {@code MapsActivity} at all.
      *
-     * <p>AMap's SDK requires all three; osmdroid requires resume and pause; Google's
-     * {@code MapView} is managed by the fragment and requires none.
+     * <p>AMap's {@code TextureMapView} requires all three and crashes natively if destroyed
+     * twice or after its activity is gone - see {@code AMapProvider.onDestroy()}.
      */
     default void onResume() {
     }
