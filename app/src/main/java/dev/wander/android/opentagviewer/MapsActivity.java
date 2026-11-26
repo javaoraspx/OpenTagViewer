@@ -60,6 +60,7 @@ import dev.wander.android.opentagviewer.ui.maps.CardSlots;
 import dev.wander.android.opentagviewer.ui.maps.IMapProvider;
 import dev.wander.android.opentagviewer.ui.maps.MapProviderFactory;
 import dev.wander.android.opentagviewer.ui.maps.MapMarker;
+import dev.wander.android.opentagviewer.ui.maps.MapNavigationLinks;
 import dev.wander.android.opentagviewer.ui.maps.MapPolyline;
 import dev.wander.android.opentagviewer.ui.maps.MarkerPalette;
 import dev.wander.android.opentagviewer.ui.maps.NearbyBatteryIcon;
@@ -434,6 +435,17 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
 
     /** When the cards were last redrawn. Only touched on the main looper. */
     private long lastCardRedrawAt = 0L;
+
+    /**
+     * 导航时优先尝试的地图 App，按国内装机的常见程度排。
+     *
+     * <p>只影响"先试谁"，不影响"能不能用别的"：三个都没有时仍然发 {@code geo:} 让系统选择器
+     * 处理，用户装什么用什么。
+     */
+    private static final List<String> NAVIGABLE_MAP_PACKAGES = List.of(
+            MapNavigationLinks.PACKAGE_AMAP,
+            MapNavigationLinks.PACKAGE_BAIDU,
+            MapNavigationLinks.PACKAGE_TENCENT);
 
     /**
      * Tags already logged as having no location, so the "no card" line is a state change rather
@@ -1355,31 +1367,73 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             return;
         }
         final BeaconLocationReport lastLocation = maybeLast.get();
-        Uri uri = Uri.parse(String.format(Locale.ROOT, "geo:%.7f,%.7f?q=%.7f,%.7f", lastLocation.getLatitude(), lastLocation.getLongitude(), lastLocation.getLatitude(), lastLocation.getLongitude()));
 
-        // **Whatever the user's maps application is, not Google's.** This used to name
-        // com.google.android.apps.maps, which is the wrong shape of answer twice over. geo: is
-        // a standard scheme that Organic Maps, OsmAnd, Magic Earth and the rest all register
-        // for, and naming one package means the system chooser - which already remembers what
-        // this user picked last time - never gets to offer any of them. This app exists for
-        // people who have opted out of one walled garden; sending them into another is the
-        // wrong default.
-        //
-        // It also could not work. From Android 11 the app cannot see a package it has not
-        // declared in <queries>, so resolveActivity returned null on every current device with
-        // or without Google Maps, and the button silently did nothing. The manifest now
-        // declares the geo: intent; without that entry this check fails again exactly as
-        // before, so the two changes belong together.
-        Intent mapIntent = new Intent(Intent.ACTION_VIEW, uri);
-        if (mapIntent.resolveActivity(getPackageManager()) != null) {
-            startActivity(mapIntent);
-        } else {
-            // Said out loud, because the alternative is a button that does nothing. A phone
-            // with no maps application at all is unusual but entirely possible on a stripped
-            // build, and "nothing happened" is the one outcome the user cannot act on.
-            Log.e(TAG, "No installed application can open a geo: link for the visible tag");
-            Toast.makeText(this, R.string.no_app_to_open_a_map_with, LENGTH_SHORT).show();
+        // 目的地名称：标签名，做成导航页上显示的那一行。名字可能为空，MapNavigationLinks
+        // 自己会判断，这里不必再判一次。
+        final String pointName = this.beacons.containsKey(beaconId)
+                ? this.beacons.get(beaconId).getInfo().getName()
+                : null;
+
+        this.startNavigationTo(lastLocation, pointName);
+    }
+
+    /**
+     * 把"导航到这里"交给手机上的地图 App。
+     *
+     * <p><b>不再只发一条 {@code geo:}。</b> 原来的实现是一条 {@code geo:lat,lng?q=lat,lng}
+     * 交给系统选择器，在国内的结果是：高德、百度、腾讯都能"打开"它，但大多只把点标在地图上，
+     * 不认里面的目的地——用户看到地图开着、导航没开始，和"没带目的地"是一样的观感。
+     * 具体原因和各家协议见 {@link MapNavigationLinks}。
+     *
+     * <p><b>先问装没装，再挑链接。</b> 装了高德就用高德自己的协议，装了百度同理，装了哪个
+     * 用哪个；一个都没有（或只有我们不认识的）才回落到 {@code geo:}，仍然交给系统选择器——
+     * 那是这个 App 一贯的立场：不替用户指定地图 App。这里只是"知道它装了哪个，就用那个
+     * 能用的说法"。
+     *
+     * <p>顺序是国内的常用程度，不是偏好：三个都装了的用户，多点一次选择器不如直接进一个。
+     * 想换别的 App，从 {@code geo:} 那条路走（把这三个之外的任意地图装上即可）。
+     */
+    private void startNavigationTo(final BeaconLocationReport location, final String pointName) {
+        final double lat = location.getLatitude();
+        final double lon = location.getLongitude();
+
+        for (final String candidate : NAVIGABLE_MAP_PACKAGES) {
+            final String link = MapNavigationLinks.forPackage(candidate, lat, lon, pointName);
+            if (link == null) {
+                continue;
+            }
+            // resolveActivity 而不是 isPackageInstalled：装是装了，但版本太老不认这个
+            // scheme 的情况是存在的，问"谁能处理这个链接"比问"这个包在不在"更接近我们要
+            // 的答案。这依赖 Manifest 里 <queries> 那几条声明，否则 Android 11 起恒返回 null。
+            final Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(link));
+            intent.addCategory(Intent.CATEGORY_DEFAULT);
+            if (intent.resolveActivity(getPackageManager()) != null) {
+                Log.i(TAG, "Opening " + candidate + " for navigation to the visible tag");
+                try {
+                    startActivity(intent);
+                    return;
+                } catch (Exception e) {
+                    // 极少数定制系统在 resolve 通过后仍然拒绝启动，换下一个而不是整个失败。
+                    Log.w(TAG, "Could not start " + candidate + " for navigation", e);
+                }
+            }
         }
+
+        // 没有我们认识的地图 App，或者认识的都启动不了：发通用链接，让系统选择器去处理。
+        // 名字一并带上（RFC 5870 的 q=lat,lng(label)），之前这一份是把名字丢了的。
+        final Intent generic = new Intent(Intent.ACTION_VIEW,
+                Uri.parse(MapNavigationLinks.generic(lat, lon, pointName)));
+        if (generic.resolveActivity(getPackageManager()) != null) {
+            Log.i(TAG, "No known map application handled this; falling back to a geo: link");
+            startActivity(generic);
+            return;
+        }
+
+        // Said out loud, because the alternative is a button that does nothing. A phone
+        // with no maps application at all is unusual but entirely possible on a stripped
+        // build, and "nothing happened" is the one outcome the user cannot act on.
+        Log.e(TAG, "No installed application can open a map link for the visible tag");
+        Toast.makeText(this, R.string.no_app_to_open_a_map_with, LENGTH_SHORT).show();
     }
 
     public void askForLocationWithRationale() {

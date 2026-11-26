@@ -75,6 +75,32 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="geo" />
         </intent>
+        <!--
+            Chinese map applications, addressed by their own schemes.
+
+            geo: alone does not work here: Amap, Baidu and Tencent Maps all accept it, but
+            treat it as "drop a pin" rather than "navigate to this", so the user lands on a
+            map with no destination filled in. Each of them does have a protocol that carries
+            one - androidamap://, baidumap://, qqmap:// - and MapsActivity now asks for those
+            first. See MapNavigationLinks for the parameters, which differ per app and include
+            which coordinate system each one expects.
+
+            Declared here because package visibility from Android 11 hides the target package
+            otherwise, and resolveActivity returns null without these entries - which is the
+            same failure that made the old geo: button appear to do nothing (#286).
+        -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="androidamap" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="baidumap" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="qqmap" />
+        </intent>
     </queries>
 
     <application
