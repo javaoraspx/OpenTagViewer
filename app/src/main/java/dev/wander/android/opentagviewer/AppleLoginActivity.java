@@ -263,8 +263,24 @@ public class AppleLoginActivity extends AppCompatActivity {
             this.getSupportActionBar().hide();
         }
 
-        var currentUser = this.userAuthRepo.getUserAuth().blockingFirst();
-        if (currentUser.isPresent()) {
+        // **A stored account that cannot be read must not take the app down with it.**
+        //
+        // This is the launcher, so an exception here is an exception on *every* launch - the app
+        // becomes unusable and unrecoverable from inside itself, because the screen that would
+        // let somebody sign out is the one that crashes. A record that cannot be parsed is
+        // dropped and the sign-in form is shown instead: it costs a re-login, and the tags and
+        // their history stay in the database. (1.2.9 was exactly this: R8 had stripped the
+        // model's @JsonIgnoreProperties, and one unknown key in the stored JSON bricked the app.)
+        boolean signedIn;
+        try {
+            signedIn = this.userAuthRepo.getUserAuth().blockingFirst().isPresent();
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Stored account could not be read; dropping it and asking to sign in again", e);
+            this.userAuthRepo.clearUser().onErrorComplete().subscribe();
+            signedIn = false;
+        }
+
+        if (signedIn) {
             this.finish();
             Intent intent = new Intent(this, MapsActivity.class);
             startActivity(intent);
