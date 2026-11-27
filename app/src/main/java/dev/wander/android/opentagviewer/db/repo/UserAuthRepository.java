@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.MutablePreferences;
 import androidx.datastore.preferences.core.Preferences;
 import androidx.datastore.rxjava3.RxDataStore;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Optional;
@@ -27,7 +28,23 @@ public class UserAuthRepository {
 
     private final AppCryptographyUtil cryptography;
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    /**
+     * Told to ignore fields it has no interest in, explicitly.
+     *
+     * <p>The stored account is FindMy.py's own state mapping, and it starts with
+     * {@code {"type": "account", "ids": ..., "account": ...}}. This app's model only wants
+     * {@code account}, and it says so with {@code @JsonIgnoreProperties} - but that is a class
+     * annotation, R8 only preserves those on classes that are kept, and these models are kept by
+     * member rules alone. So at runtime the annotation was not there, and every launch after a
+     * successful sign-in died with {@code Unrecognized field "type"}.
+     *
+     * <p>Set on the mapper rather than trusted to an annotation, because this cannot be shrunk
+     * away. The proguard rule that now keeps the model classes whole is the other half: it is
+     * what makes {@code @JsonProperty("account_name")} work again, which is how the account name
+     * is read out of snake_case JSON.
+     */
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     public UserAuthRepository(@NonNull RxDataStore<Preferences> userAccountDataStore, @NonNull AppCryptographyUtil cryptography) {
         this.userAccountDataStore = userAccountDataStore;
