@@ -71,6 +71,7 @@ import dev.wander.android.opentagviewer.python.TermsDocument;
 import dev.wander.android.opentagviewer.anisette.AnisetteSource;
 import dev.wander.android.opentagviewer.anisette.AnisetteStatus;
 import dev.wander.android.opentagviewer.anisette.EmulatedMacAnisette;
+import dev.wander.android.opentagviewer.anisette.LocalAnisette;
 import dev.wander.android.opentagviewer.anisette.MacCoreAdiFetcher;
 import dev.wander.android.opentagviewer.service.web.AnisetteServerTesterService;
 import dev.wander.android.opentagviewer.service.web.HttpClientProvider;
@@ -176,6 +177,21 @@ public class AppleLoginActivity extends AppCompatActivity {
      */
     private AnisetteSource localAnisette;
 
+    /**
+     * The Android machine, built only if the sign-in has to fall back to Python reading this
+     * device's identity directly.
+     *
+     * <p>Since 1.2.x a fresh sign-in's {@link #localAnisette} is an emulated Mac, and its three
+     * identity getters ({@code hardwareProfileJson}, {@code serial}, {@code deviceIdsJson}) are
+     * declarations the subclass never implements - see {@link
+     * dev.wander.android.opentagviewer.anisette.AnisetteSource} against {@link
+     * dev.wander.android.opentagviewer.anisette.EmulatedMacAnisette}. Passing that object to
+     * Python therefore makes Python fall back to FindMy.py's own identity on every launch, and
+     * the local route is reported as "failed" in the logs even when it was never the object that
+     * failed. Kept as a field so it is built at most once per screen.
+     */
+    private AnisetteSource androidIdentityFallback;
+
     /** Signing in to Apple. Behind an interface so a test can drive this screen at all. */
     private AppleAuthService authService;
 
@@ -248,7 +264,8 @@ public class AppleLoginActivity extends AppCompatActivity {
         this.authService = AppDependencies.authService();
 
         // Nobody is signed in on this screen, so an unchosen mode means local: there is no
-        // existing session whose machine identity has to be preserved.
+        // existing session whose machine identity has to be preserved. This is the emulated
+        // Mac, which is what a sign-in should provision and present.
         this.localAnisette = AppDependencies.anisette(this, this.getUserSettings(), false);
 
         this.twoFactorEntryManager = new Apple2FACodeInputManager(this, this::on2FAAuthCodeFilled);
@@ -601,7 +618,7 @@ public class AppleLoginActivity extends AppCompatActivity {
         // side falls back to anisetteServerUrl when it is not - so this can only improve on
         // the previous behaviour, never break it.
         var async = this.authService.login(
-                    emailOrPhone, password, anisetteServerUrl, this.localAnisette)
+                    emailOrPhone, password, anisetteServerUrl, this.anisetteForPython())
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(authResponse -> {
                 Log.i(TAG, "Got logged in with response ");
@@ -1431,6 +1448,62 @@ public class AppleLoginActivity extends AppCompatActivity {
 
         return Optional.ofNullable(this.getUserSettings().getAnisetteServerUrl())
                 .orElse(properties.getProperty("defaultAnisetteUrl"));
+    }
+
+    /**
+     * The Anisette to hand Python: the emulated Mac when it can answer, this device otherwise.
+     *
+     * <p><b>Why this is not simply {@link #localAnisette}.</b> A fresh sign-in's source is an
+     * emulated Mac, and its {@code hardwareProfileJson}, {@code serial} and {@code deviceIdsJson}
+     * are declared on {@link AnisetteSource} but never implemented by it - they answer {@code
+     * AttributeError: 'v' object has no attribute 'serial'} (the obfuscated class name) on every
+     * launch. Python catches that and carries on with FindMy.py's own identity, so the sign-in
+     * itself still worked, and still does. What it cost was the two things those getters exist
+     * for: the machine Apple sees disagrees with the one the ADI was provisioned for (AGENTS.md
+     * rule 11), and the log claimed "local Anisette failed" about an object that never failed.
+     *
+     * <p>So the emulated Mac is preferred only where it can actually answer, which is decided by
+     * asking it the same question Python asks. When it cannot, this device's machine is used: an
+     * identity that disagrees with the provisioned machine is a cost, and one that is simply
+     * absent is a bigger one - it registers a device entry named after the library.
+     *
+     * <p>Never throws. Every failure here is a fallback, because the worst outcome would be
+     * losing a sign-in over a field that only labels a row in Apple's device list.
+     */
+    private AnisetteSource anisetteForPython() {
+        if (answersIdentityQuestions(this.localAnisette)) {
+            return this.localAnisette;
+        }
+
+        // Reported once, and only when it is true: an install that has always used this device
+        // sees nothing new, and one that hits the gap can see why the identity changed.
+        Log.w(TAG, "The sign-in's Anisette source cannot name this device; falling back to the "
+                + "Android one for the hardware profile, serial and device ids");
+
+        if (this.androidIdentityFallback == null) {
+            this.androidIdentityFallback =
+                    new LocalAnisette(this, this.getUserSettings(), false);
+        }
+        return this.androidIdentityFallback;
+    }
+
+    /**
+     * Whether {@code source} can answer the three identity getters Python calls directly.
+     *
+     * <p>Asked by calling them rather than by checking the class, so that a subclass which
+     * really does implement them is used rather than skipped.
+     */
+    private static boolean answersIdentityQuestions(final AnisetteSource source) {
+        if (source == null) {
+            return false;
+        }
+        try {
+            return source.serial() != null
+                    && source.hardwareProfileJson() != null
+                    && source.deviceIdsJson() != null;
+        } catch (RuntimeException unsupported) {
+            return false;
+        }
     }
 
     private UserSettings getUserSettings() {
