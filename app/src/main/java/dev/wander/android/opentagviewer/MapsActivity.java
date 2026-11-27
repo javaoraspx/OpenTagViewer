@@ -468,8 +468,20 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
     private final Handler longFetchBannerHandler = new Handler(Looper.getMainLooper());
 
     /** 定位读取的结果一律回到主线程处理，因为回调里会直接操作地图视图。 */
-    private final Executor mainExecutor =
-            ContextCompat.getMainExecutor(this);
+    private Executor mainExecutor;
+
+    /**
+     * 首次用到时才创建 executor。绝不能在字段初始化时调用 {@code getMainExecutor(this)}：
+     * 那发生在构造函数里，此时 Activity 还没 attach，ContextWrapper 的 mBase 为 null，
+     * ContextCompat 的实现会空指针——应用一进地图页就崩。第一次走这里时 Activity 早已 attach。
+     */
+    private Executor mainExecutor() {
+        if (this.mainExecutor == null) {
+            this.mainExecutor = ContextCompat.getMainExecutor(this);
+        }
+        return this.mainExecutor;
+    }
+
     private final Runnable showLongFetchBanner = () -> {
         this.bannerState.becameDue();
         this.updateLongFetchBanner();
@@ -1267,7 +1279,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             // One callback, always fired: a fix moves the camera, no fix falls back to the
             // locale view. The old success/failure pair could drop both branches when the
             // activity was already gone, leaving the map on the provider's default.
-            LastKnownFix.request(this, this.mainExecutor, location -> {
+            LastKnownFix.request(this, this.mainExecutor(), location -> {
                 if (this.isFinishing() || this.isDestroyed()) {
                     return;
                 }
@@ -1327,7 +1339,7 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             return;
         }
 
-        LastKnownFix.request(this, this.mainExecutor, location -> {
+        LastKnownFix.request(this, this.mainExecutor(), location -> {
             if (this.isFinishing() || this.isDestroyed() || this.mapProvider == null) {
                 return;
             }

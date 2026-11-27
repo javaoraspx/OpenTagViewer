@@ -69,6 +69,12 @@ jobs:
       - name: Check R8 keeps every Java method Python calls by name
         run: python scripts/check_python_bridge_keep.py
 
+      # Jackson builds stored models through a no-arg constructor and field reflection. R8
+      # cannot see either and removes them, so the activity reading stored JSON crashes on
+      # start. Keep the deserialised model packages intact, or sign-in state cannot be read.
+      - name: Check Jackson models survive R8
+        run: python scripts/check_jackson_keep.py
+
       # pyright rather than mypy: the editors used on this project run Pylance, which is
       # pyright, and mypy's defaults are lenient enough to pass code Pylance flags.
       #

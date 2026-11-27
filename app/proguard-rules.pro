@@ -33,7 +33,15 @@
 # ---------------------------------------------------------------------------
 # 本项目 —— 反射 / 序列化 / 注解处理
 # ---------------------------------------------------------------------------
-# Jackson：数据类被按字段名反序列化。字段名一改，接口解析就全空。
+# Jackson 反序列化：ObjectMapper.readValue() 按字段名赋值，并且**必须**先有一个无参
+# 构造函数来 new 出实例。这些类都由 Lombok @NoArgsConstructor 生成该构造，但 Java 源码里
+# 没有任何一处显式调用它——R8 只看显式调用，会把这个"没人调用"的构造整段删掉，Jackson
+# 于是报 "Cannot construct instance of X (no Creators, like default constructor, exist)"。
+#
+# 1.2.3 开 R8 之后埋下的坑：1.2.8 修好了 Anisette 的同类反射问题，登录终于能过，于是启动
+# 流程第一次真正走到 UserAuthRepository.getUserAuth() 的 readValue(UserAuthData.class)，
+# 撞上被删掉的构造，AppleLoginActivity.onCreate 直接崩，形成"点图标就闪退"的崩溃循环。
+# 字段名、无参构造、getter/setter 三者缺一不可，所以每个 Jackson model 包都要集齐。
 -keepclassmembers class dev.wander.android.opentagviewer.data.model.** {
     <fields>;
     <init>(...);
@@ -42,10 +50,17 @@
     <fields>;
     <init>(...);
 }
-# Lombok 生成的 @Data 类：getter/setter 名与字段名一一对应，被 R8 改名后
-# Room 的列映射和 DataStore 的键就对不上了。
+# db.repo.model 里是 UserAuthData 及其嵌套类，登录状态的反序列化全靠它。
 -keepclassmembers class dev.wander.android.opentagviewer.db.repo.model.** {
     <fields>;
+    <init>(...);
+    *** get*();
+    void set*(***);
+}
+# 设置页读取的 Anisette 服务器推荐列表，同样是 Jackson 反序列化的 @Data 类。
+-keepclassmembers class dev.wander.android.opentagviewer.service.web.sidestore.** {
+    <fields>;
+    <init>(...);
     *** get*();
     void set*(***);
 }
