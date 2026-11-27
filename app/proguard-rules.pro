@@ -17,18 +17,37 @@
 # ---------------------------------------------------------------------------
 # 高德地图 SDK
 # ---------------------------------------------------------------------------
-# 高德 AAR 自带 consumer rules，类名与 native 方法由它自己保护。这里只补几条它没覆盖、
-# 而我们的代码依赖的部分。
+# **整个 SDK 一起 keep，不挑类。** 挑类试过一次，代价是一次线上级崩溃。
 #
-# 1) MapsInitializer 的静态状态必须在 Application 里就能写（我们直接调用，不是反射）。
--keep class com.amap.api.maps.MapsInitializer { *; }
-
-# 2) 高德按类名反射创建地图视图，R8 重命名后会找不到。
--keep class com.amap.api.maps.MapView { *; }
--keep class com.amap.api.maps.TextureMapView { *; }
-
-# 3) SDK 内部存在按字段名访问的模型类，字段名不能改。
--keepclassmembers class com.amap.api.maps.model.** { *; }
+# 高德的 AAR 自带 consumer rules，我们以前只补它漏掉的几条（MapsInitializer 的静态状态、
+# 按类名反射创建的 MapView / TextureMapView、按字段名访问的 model）。这些确实必要，但都不
+# 够——因为 SDK 的**原生库按字符串回 Java 找类**，而那些字符串在 .so 里面，R8 看不见，
+# 也改不出一条对应的映射。我们唯一能做的事就是「别改名」。
+#
+# 1.2.9 的 R8 构建就栽在这一步。libAMapOpenMapJNI.so 在自己的 JNI_OnLoad 里第一件事是
+# FindClass("com/autonavi/base/amap/mapcore/ClassTools")，紧接着对它 GetStaticMethodID：
+#
+#   Pending exception java.lang.ClassNotFoundException:
+#     com.autonavi.base.amap.mapcore.ClassTools
+#   JNI DETECTED ERROR IN APPLICATION: java_class == null
+#     in call to GetStaticMethodID ... from Runtime.nativeLoad
+#   Fatal signal 6 (SIGABRT) in tid NNNN (GLThread)
+#
+# AAR 的 consumer rules 只 keep 了 com.autonavi 下少数几个类（MsgProcessor、GLMapEngine、
+# GLMapState、NetworkProxyManager、GLOverlayBundle、AMapNativeGlOverlayLayer），ClassTools
+# 不在名单里，被改名成 m1.i0.u，FindClass 拿到 null，原生侧的 CHECK 直接 abort。栈是 GL
+# 线程的 onSurfaceCreated → System.loadLibrary，所以表现是「地图一显示就闪退」，之后每次
+# 进地图都崩；而且这是原生 abort，Java 侧 try/catch 接不住。
+#
+# 这不是一个类的问题。libAMapSDK_MAP_v11_3_100.so 里一共出现 90 个 com/amap、com/autonavi
+# 的类名，1.2.9 的 dex 里其中 86 个已经不存在（MarkerOptions、PolylineOptions、
+# GlyphLoader……），只是还没走到那条路径而已。逐个补是在拿崩溃换崩溃，所以整包 keep。
+#
+# 代价是 com.amap / com.autonavi 下的死代码不再被裁掉，dex 大一点；换来的是原生库按名字
+# 找的任何东西都找得到。宁可大，不可崩。
+-keep class com.amap.** { *; }
+-keep class com.autonavi.** { *; }
+-keep class com.loc.** { *; }
 
 # ---------------------------------------------------------------------------
 # 本项目 —— 反射 / 序列化 / 注解处理
