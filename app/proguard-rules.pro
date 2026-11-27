@@ -41,7 +41,22 @@
 # 1.2.3 开 R8 之后埋下的坑：1.2.8 修好了 Anisette 的同类反射问题，登录终于能过，于是启动
 # 流程第一次真正走到 UserAuthRepository.getUserAuth() 的 readValue(UserAuthData.class)，
 # 撞上被删掉的构造，AppleLoginActivity.onCreate 直接崩，形成"点图标就闪退"的崩溃循环。
-# 字段名、无参构造、getter/setter 三者缺一不可，所以每个 Jackson model 包都要集齐。
+#
+# **1.2.9 补上构造之后，紧接着撞上第二层：类上的注解也没了。**
+#
+# keepclassmembers 只保证「类还活着的时候，它的成员不被删」，它不 keep 这个类；而
+# -keepattributes 保留的注解属性只对 keep 住的类生效。于是运行时：
+#   - @JsonIgnoreProperties(ignoreUnknown = true) 不存在 → FindMy.py 存下的
+#     {"type": "account", "ids": ...} 直接抛 Unrecognized field "type"，又是启动即崩；
+#   - @JsonProperty("account_name") 不存在 → JSON 里是 snake_case、字段是 camelCase，
+#     账户名一律读成 null。
+#
+# 所以挂着这些注解、又靠字段名反序列化的包，必须 -keep 整个类：注解要活到运行时，
+# 字段名一个都不能改。代价只是这些类不再被混淆（几十个类的名字而已）。
+-keep class dev.wander.android.opentagviewer.db.repo.model.** { *; }
+-keep class dev.wander.android.opentagviewer.service.web.sidestore.** { *; }
+
+# data.model 与 room entity 没有注解参与，按字段名和构造反射即可，成员保住就够了。
 -keepclassmembers class dev.wander.android.opentagviewer.data.model.** {
     <fields>;
     <init>(...);
@@ -49,20 +64,6 @@
 -keepclassmembers class dev.wander.android.opentagviewer.db.room.entity.** {
     <fields>;
     <init>(...);
-}
-# db.repo.model 里是 UserAuthData 及其嵌套类，登录状态的反序列化全靠它。
--keepclassmembers class dev.wander.android.opentagviewer.db.repo.model.** {
-    <fields>;
-    <init>(...);
-    *** get*();
-    void set*(***);
-}
-# 设置页读取的 Anisette 服务器推荐列表，同样是 Jackson 反序列化的 @Data 类。
--keepclassmembers class dev.wander.android.opentagviewer.service.web.sidestore.** {
-    <fields>;
-    <init>(...);
-    *** get*();
-    void set*(***);
 }
 
 # Room 生成的 *Impl 由 Room 用反射实例化。
