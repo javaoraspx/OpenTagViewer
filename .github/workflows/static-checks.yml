@@ -63,6 +63,12 @@ jobs:
       - name: Check Java uses imports, not fully qualified names
         run: python scripts/check_java_imports.py
 
+      # Python calls Java Anisette methods by name through Chaquopy. If R8 renames or removes
+      # them, login fails on a phone while every JVM test still passes - which is exactly what
+      # happened when R8 was first enabled. Keep the two sides in sync.
+      - name: Check R8 keeps every Java method Python calls by name
+        run: python scripts/check_python_bridge_keep.py
+
       # pyright rather than mypy: the editors used on this project run Pylance, which is
       # pyright, and mypy's defaults are lenient enough to pass code Pylance flags.
       #

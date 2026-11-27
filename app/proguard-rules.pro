@@ -62,6 +62,38 @@
 -keep class dev.wander.android.opentagviewer.python.** { *; }
 -dontwarn com.chaquo.python.**
 
+# Python 侧通过 Chaquopy 的 JavaObject 按方法名字符串反射调用 AnisetteSource 的实现。
+#
+# 这个方法表是 identity.py 与 main.py 里 `localAnisette.<name>()` 的全部调用：
+#   ensureReady, unavailableReason, isChangingMachineIdentity, otp, machine,
+#   router, recordSessionProvenance, wasSessionEstablishedLocally,
+#   hardwareProfileJson, deviceIdsJson, serial, describe
+#
+# 这些调用在 Java 代码里没有任何一处出现，所以 R8 会认为它们无人使用：无参的
+# serial()/hardwareProfileJson()/deviceIdsJson()/otp()/machine()/router()/describe()
+# 被整段删除，ensureReady()/unavailableReason()/wasSessionEstablishedLocally()
+# 被改名成 a/b/c。Python 于是拿到 `'v' object has no attribute 'serial'`（v 是
+# EmulatedMacAnisette 混淆后的名字），把本地 Anisette 判为失败、回退到远端服务器，
+# 而服务器一旦 500/502 登录就彻底失败。原始未开 R8 的构建没有这个问题。
+#
+# 只保留被反射调用的方法就够了，不必 keep 整个实现类：Python 拿到的是对象引用，
+# 不按类名查找，类名随它混淆。失配从「登录失败」降级为「日志里类名难读」。
+-keep interface dev.wander.android.opentagviewer.anisette.AnisetteSource { *; }
+-keepclassmembers class * implements dev.wander.android.opentagviewer.anisette.AnisetteSource {
+    public boolean ensureReady();
+    public java.lang.String unavailableReason();
+    public boolean isChangingMachineIdentity();
+    public java.lang.String otp();
+    public java.lang.String machine();
+    public java.lang.String router();
+    public void recordSessionProvenance(boolean);
+    public boolean wasSessionEstablishedLocally();
+    public java.lang.String hardwareProfileJson();
+    public java.lang.String deviceIdsJson();
+    public java.lang.String serial();
+    public java.lang.String describe();
+}
+
 # ---------------------------------------------------------------------------
 # 第三方库的已知噪音
 # ---------------------------------------------------------------------------

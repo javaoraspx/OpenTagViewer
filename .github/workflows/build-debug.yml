@@ -141,11 +141,21 @@ jobs:
           TAG="v${APP_VERSION}"
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK" || { echo "::error::Release APK missing at $APK"; exit 1; }
-          echo "Publishing $APK as release $TAG"
+
+          # A download called "app-release.apk" tells nobody which app or build it is. Give the
+          # asset the name people actually look for: product, version and the only ABI we ship.
+          # Renaming a copy keeps Gradle's own output path untouched, so nothing else in the
+          # build has to know about the published name. gh uploads under the copy's basename.
+          NAMED_APK="app/build/outputs/apk/release/OpenTagViewer-${APP_VERSION}-arm64.apk"
+          cp "$APK" "$NAMED_APK"
+          echo "Publishing $NAMED_APK as release $TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --clobber
+            gh release upload "$TAG" "$NAMED_APK" --clobber
+            # Drop the old unhelpfully-named asset if this tag was published by an earlier
+            # build. Ignore the error when it was never there.
+            gh release delete-asset "$TAG" "app-release.apk" -y >/dev/null 2>&1 || true
           else
-            gh release create "$TAG" "$APK" \
+            gh release create "$TAG" "$NAMED_APK" \
               --title "OpenTagViewer ${APP_VERSION}" \
               --notes "Signed release APK ${APP_VERSION} (arm64-v8a, real devices only). Built from main." \
               --latest
