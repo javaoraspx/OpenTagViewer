@@ -141,3 +141,29 @@
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn org.codehaus.mojo.**
 -dontwarn java.beans.**
+
+# 高德：整包 keep 之后，"找不到的类"第一次全部进入 R8 的可达图。
+#
+# 1.2.10 的 release 构建就死在这里（`minifyReleaseWithR8`），R8 报的一共就两个类：
+#
+#   ERROR: Missing classes detected while running R8. ...
+#   ERROR: R8: Missing class com.amap.ams.gnss.GnssSoftLocator (referenced from: void
+#     com.amap.location.fusion.original.a.a.<init>(boolean, com.amap.location.support.
+#     handler.AmapLooper))
+#   Missing class net.jafama.FastMath (referenced from: byte[] com.autonavi.aps.protocol.
+#     aps.request.model.fields.context.b.e())
+#
+# 两个都是可选依赖：GnssSoftLocator 属于 GNSS 软定位模块（合包里没有），jafama 是一套快速
+# 数学库，高德的空中协议代码拿它算三角函数。以前只 keep 三五个类，这些引用跟着死代码一起
+# 被裁掉，R8 从来没报过；现在 com.amap / com.autonavi / com.loc 整包 keep，引用全部可达，
+# 于是构建在最后一步失败。
+#
+# **-dontwarn 按"被缺的类名"匹配，不是按引用方。** com.autonavi 的代码引用 net.jafama，
+# 写 com.autonavi.** 不管用，必须写 net.jafama.**——这是这次唯一需要单独补的一条。
+#
+# 缺的类不影响已存在的代码路径：真走到才会 NoClassDefFoundError，而走到它的前提是设备上
+# 装了这些可选模块。所以按包静音，而不是去补一堆不存在的类。
+-dontwarn com.amap.**
+-dontwarn com.autonavi.**
+-dontwarn com.loc.**
+-dontwarn net.jafama.**

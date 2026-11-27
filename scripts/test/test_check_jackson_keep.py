@@ -69,6 +69,60 @@ def test_detects_a_package_missing_fields(tmp_path: Path):
         guard.PROGUARD_FILE = original
 
 
+def test_accepts_a_whole_class_rule(tmp_path: Path):
+    """`-keep class <pkg>.** { *; }` keeps the class, its members and its annotations."""
+    original = guard.PROGUARD_FILE
+    fake = tmp_path / "proguard-rules.pro"
+    fake.write_text(
+        "-keep class dev.wander.android.opentagviewer.db.repo.model.** { *; }\n"
+        "-keep class dev.wander.android.opentagviewer.service.web.sidestore.** { *; }\n"
+        "-keepclassmembers class dev.wander.android.opentagviewer.data.model.** {\n"
+        "    <fields>;\n"
+        "    <init>(...);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    guard.PROGUARD_FILE = fake
+    try:
+        _, _, missing = guard.check()
+        assert not missing, missing
+    finally:
+        guard.PROGUARD_FILE = original
+
+
+def test_flags_members_only_keep_for_an_annotated_model(tmp_path: Path):
+    """1.2.9: fields and constructors survived, the class-level annotation did not."""
+    original = guard.PROGUARD_FILE
+    fake = tmp_path / "proguard-rules.pro"
+    fake.write_text(
+        "-keepclassmembers class dev.wander.android.opentagviewer.db.repo.model.** {\n"
+        "    <fields>;\n"
+        "    <init>(...);\n"
+        "}\n"
+        "-keepclassmembers class dev.wander.android.opentagviewer.service.web.sidestore.** {\n"
+        "    <fields>;\n"
+        "    <init>(...);\n"
+        "}\n"
+        "-keepclassmembers class dev.wander.android.opentagviewer.data.model.** {\n"
+        "    <fields>;\n"
+        "    <init>(...);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    guard.PROGUARD_FILE = fake
+    try:
+        _, _, missing = guard.check()
+        pkg = "dev.wander.android.opentagviewer.db.repo.model"
+        assert pkg in missing, missing
+        assert "class" in missing[pkg][1]
+        # data.model carries no Jackson annotation, so member rules remain enough there.
+        assert "dev.wander.android.opentagviewer.data.model" not in missing
+
+        assert guard.main([]) == 1
+    finally:
+        guard.PROGUARD_FILE = original
+
+
 def test_fix_mode_prints_the_rule(tmp_path: Path):
     original = guard.PROGUARD_FILE
     fake = tmp_path / "proguard-rules.pro"
