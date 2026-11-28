@@ -471,4 +471,9 @@
     <string name="all_tags">全部标签</string>
     <string name="collapse">收起</string>
     <string name="tag_count">%1$d 个标签</string>
+    <string name="choose_travel_mode">选择出行方式</string>
+    <string name="travel_mode_driving">驾车</string>
+    <string name="travel_mode_walking">步行</string>
+    <string name="travel_mode_cycling">骑行</string>
+    <string name="travel_mode_transit">公交</string>
 </resources>

@@ -506,4 +506,9 @@ If Apple simply refused the request, waiting and trying again is worth doing fir
     <string name="all_tags">All tags</string>
     <string name="collapse">Collapse</string>
     <string name="tag_count">%1$d tags</string>
+    <string name="choose_travel_mode">How are you getting there?</string>
+    <string name="travel_mode_driving">Driving</string>
+    <string name="travel_mode_walking">Walking</string>
+    <string name="travel_mode_cycling">Cycling</string>
+    <string name="travel_mode_transit">Public transport</string>
 </resources>

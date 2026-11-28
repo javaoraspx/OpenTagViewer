@@ -471,4 +471,9 @@ Wenn Apple die Anfrage lediglich abgelehnt hat, lohnt es sich, zu warten und es 
     <string name="all_tags">Alle Tags</string>
     <string name="collapse">Einklappen</string>
     <string name="tag_count">%1$d Tags</string>
+    <string name="choose_travel_mode">Wie möchten Sie unterwegs sein?</string>
+    <string name="travel_mode_driving">Auto</string>
+    <string name="travel_mode_walking">Zu Fuß</string>
+    <string name="travel_mode_cycling">Fahrrad</string>
+    <string name="travel_mode_transit">Öffentliche Verkehrsmittel</string>
 </resources>

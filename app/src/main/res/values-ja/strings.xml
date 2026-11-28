@@ -471,4 +471,9 @@ Appleが要求を拒否しただけなら、少し待ってからもう一度お
     <string name="all_tags">すべてのタグ</string>
     <string name="collapse">閉じる</string>
     <string name="tag_count">%1$d 個</string>
+    <string name="choose_travel_mode">移動手段を選択</string>
+    <string name="travel_mode_driving">車</string>
+    <string name="travel_mode_walking">徒歩</string>
+    <string name="travel_mode_cycling">自転車</string>
+    <string name="travel_mode_transit">公共交通</string>
 </resources>

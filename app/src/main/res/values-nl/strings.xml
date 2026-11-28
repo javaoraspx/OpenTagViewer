@@ -471,4 +471,9 @@ Als Apple het verzoek simpelweg weigerde, is even wachten en opnieuw proberen he
     <string name="all_tags">Alle tags</string>
     <string name="collapse">Inklappen</string>
     <string name="tag_count">%1$d tags</string>
+    <string name="choose_travel_mode">Hoe wilt u reizen?</string>
+    <string name="travel_mode_driving">Auto</string>
+    <string name="travel_mode_walking">Te voet</string>
+    <string name="travel_mode_cycling">Fiets</string>
+    <string name="travel_mode_transit">Openbaar vervoer</string>
 </resources>

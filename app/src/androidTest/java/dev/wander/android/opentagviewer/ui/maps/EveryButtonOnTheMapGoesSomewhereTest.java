@@ -224,6 +224,13 @@ public class EveryButtonOnTheMapGoesSomewhereTest {
                 .check(matches(isDisplayed())));
         onView(withId(R.id.button_navigate_to)).perform(click());
 
+        // **Pressing it now asks how you are travelling, and the intent only leaves once that
+        // is answered.** Without this step the test sits on the chooser and the failure reads
+        // as "navigate-to sent nothing", which is the opposite of what is being checked.
+        onView(withText(R.string.travel_mode_walking))
+                .inRoot(isDialog())
+                .perform(click());
+
         Eventually.check(() -> intended(allOf(
                 hasAction(Intent.ACTION_VIEW),
                 hasDataString(startsWith("geo:")))));

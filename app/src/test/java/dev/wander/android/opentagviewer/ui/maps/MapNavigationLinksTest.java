@@ -263,4 +263,112 @@ public class MapNavigationLinksTest {
 
         assertEquals("geo:-33.8688197,-151.2092955", link);
     }
+
+    // ---------------------------------------------------------------- 出行方式
+
+    /**
+     * 高德没有"步行导航"这个入口，{@code navi} 只做驾车。所以除驾车外的三种必须换到
+     * {@code route}，否则用户选了步行、进去仍然是一条汽车路线——比没有选择更糟，因为他会
+     * 以为自己选的没生效。
+     */
+    @Test
+    public void amapSendsEverythingButDrivingToRoutePlanning() {
+        final String walking = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.WALKING);
+
+        assertTrue("walking must not go through navi: " + walking,
+                walking.startsWith("androidamap://route"));
+        assertTrue("walking is t=2: " + walking, walking.contains("&t=2"));
+        assertTrue("destination missing: " + walking, walking.contains("dlat=39.9046900"));
+        assertTrue("destination missing: " + walking, walking.contains("dlon=116.4071700"));
+        // route 的目的地名参数叫 dname，navi 才叫 poiname。
+        assertTrue("dname missing: " + walking, walking.contains("&dname="));
+        assertFalse("poiname belongs to navi: " + walking, walking.contains("poiname="));
+    }
+
+    /** 坐标系和驾车那条路一样：route 也必须拿到 dev=1，否则偏几百米。 */
+    @Test
+    public void amapRouteAlsoDeclaresWgs84() {
+        final String link = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.WALKING);
+
+        assertTrue("dev=1 missing: " + link, link.contains("dev=1"));
+        assertFalse("dev=0 means already GCJ-02: " + link, link.contains("dev=0"));
+    }
+
+    @Test
+    public void amapNumbersTheOtherModesAsDocumented() {
+        final String transit = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.TRANSIT);
+        final String cycling = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.CYCLING);
+
+        assertTrue("transit is t=1: " + transit, transit.contains("&t=1"));
+        assertTrue("cycling is t=3: " + cycling, cycling.contains("&t=3"));
+    }
+
+    /** 驾车仍然直接进导航态：这条路上没有 t 参数，也不该突然多出来。 */
+    @Test
+    public void amapKeepsDrivingOnTheNavigationScheme() {
+        final String link = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.DRIVING);
+
+        assertTrue("driving should stay on navi: " + link, link.startsWith("androidamap://navi"));
+        assertFalse("navi has no route type: " + link, link.contains("&t="));
+    }
+
+    @Test
+    public void baiduRenamesTheModeForEachTravelMode() {
+        final String walking = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_BAIDU, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.WALKING);
+        final String cycling = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_BAIDU, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.CYCLING);
+        final String transit = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_BAIDU, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.TRANSIT);
+
+        assertTrue("walking: " + walking, walking.contains("mode=walking"));
+        assertTrue("cycling is riding in Baidu's words: " + cycling, cycling.contains("mode=riding"));
+        assertTrue("transit: " + transit, transit.contains("mode=transit"));
+    }
+
+    /** 腾讯只认 drive / bus / walk。骑行按步行给：路线是对的，只是不一定允许自行车。 */
+    @Test
+    public void tencentTranslatesTheModesItDocuments() {
+        final String transit = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_TENCENT, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.TRANSIT);
+        final String cycling = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_TENCENT, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.CYCLING);
+        final String walking = MapNavigationLinks.forPackage(
+                MapNavigationLinks.PACKAGE_TENCENT, LAT, LON, NAME,
+                MapNavigationLinks.TravelMode.WALKING);
+
+        assertTrue("transit is bus: " + transit, transit.contains("type=bus"));
+        assertTrue("cycling borrows walk: " + cycling, cycling.contains("type=walk"));
+        assertTrue("walking: " + walking, walking.contains("type=walk"));
+    }
+
+    /** 老调用点（还有测试）不带方式，语义保持"驾车"，不要悄悄变成步行。 */
+    @Test
+    public void omittingTheModeKeepsDriving() {
+        assertEquals(
+                MapNavigationLinks.forPackage(MapNavigationLinks.PACKAGE_BAIDU, LAT, LON, NAME,
+                        MapNavigationLinks.TravelMode.DRIVING),
+                MapNavigationLinks.forPackage(MapNavigationLinks.PACKAGE_BAIDU, LAT, LON, NAME));
+        // null 与省略同义：调用方拿到的是一个可能为空的用户选择。
+        assertEquals(
+                MapNavigationLinks.forPackage(MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                        MapNavigationLinks.TravelMode.DRIVING),
+                MapNavigationLinks.forPackage(MapNavigationLinks.PACKAGE_AMAP, LAT, LON, NAME,
+                        null));
+    }
 }

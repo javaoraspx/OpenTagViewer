@@ -448,6 +448,28 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
             MapNavigationLinks.PACKAGE_TENCENT);
 
     /**
+     * 弹窗里给出的出行方式，顺序即展示顺序：最常用的在前。
+     *
+     * <p>不按距离自动挑。几步之外也可能是开车来的（后备箱里有东西、下雨），十几公里也可能是
+     * 骑车去地铁站；判错的代价是用户被塞了一条走不通的路线，而恢复办法只有"再点一次，希望这次
+     * 猜对"。四个选项一次点完，没有猜。
+     */
+    private static final MapNavigationLinks.TravelMode[] TRAVEL_MODES = {
+            MapNavigationLinks.TravelMode.DRIVING,
+            MapNavigationLinks.TravelMode.WALKING,
+            MapNavigationLinks.TravelMode.CYCLING,
+            MapNavigationLinks.TravelMode.TRANSIT
+    };
+
+    /** 与 {@link #TRAVEL_MODES} 一一对应的文案。 */
+    private static final int[] TRAVEL_MODE_LABELS = {
+            R.string.travel_mode_driving,
+            R.string.travel_mode_walking,
+            R.string.travel_mode_cycling,
+            R.string.travel_mode_transit
+    };
+
+    /**
      * Tags already logged as having no location, so the "no card" line is a state change rather
      * than a line per redraw. Written from the main looper only, but a set rather than a field
      * because it holds one entry per such tag.
@@ -1386,7 +1408,33 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
                 ? this.beacons.get(beaconId).getInfo().getName()
                 : null;
 
-        this.startNavigationTo(lastLocation, pointName);
+        this.askTravelModeThenNavigate(lastLocation, pointName);
+    }
+
+    /**
+     * 先问一句怎么去，再跳。
+     *
+     * <p>以前这里直接跳，而且三家的链接里方式都写死成驾车。地图 App 的驾车路线默认走机动车道，
+     * 对"标签就在楼下几百米"这种最常见的场景反而是绕路最多的一种：单行线、不能左转、进不了
+     * 小区门口，都要靠用户自己在对方的 App 里改成步行——而很多人不知道那里能改。
+     *
+     * <p>用 {@code setItems} 而不是单选列表：这里不是"设置"，是一次性的选择，点完就该跳走，
+     * 多一个确定按钮只是多一次点击。
+     */
+    private void askTravelModeThenNavigate(final BeaconLocationReport location,
+                                           final String pointName) {
+        final CharSequence[] labels = new CharSequence[TRAVEL_MODE_LABELS.length];
+        for (int i = 0; i < TRAVEL_MODE_LABELS.length; i++) {
+            labels[i] = this.getString(TRAVEL_MODE_LABELS[i]);
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.choose_travel_mode)
+                .setItems(labels, (dialog, which) -> {
+                    Log.i(TAG, "Travel mode chosen: " + TRAVEL_MODES[which]);
+                    this.startNavigationTo(location, pointName, TRAVEL_MODES[which]);
+                })
+                .show();
     }
 
     /**
@@ -1404,13 +1452,17 @@ public class MapsActivity extends AppCompatActivity implements IMapProvider.OnMa
      *
      * <p>顺序是国内的常用程度，不是偏好：三个都装了的用户，多点一次选择器不如直接进一个。
      * 想换别的 App，从 {@code geo:} 那条路走（把这三个之外的任意地图装上即可）。
+     *
+     * @param travelMode 用户刚选的方式；落到 {@code geo:} 时会被丢掉——RFC 5870 里没有
+     *                   出行方式这个字段，能不能步行由接手的 App 自己决定
      */
-    private void startNavigationTo(final BeaconLocationReport location, final String pointName) {
+    private void startNavigationTo(final BeaconLocationReport location, final String pointName,
+                                   final MapNavigationLinks.TravelMode travelMode) {
         final double lat = location.getLatitude();
         final double lon = location.getLongitude();
 
         for (final String candidate : NAVIGABLE_MAP_PACKAGES) {
-            final String link = MapNavigationLinks.forPackage(candidate, lat, lon, pointName);
+            final String link = MapNavigationLinks.forPackage(candidate, lat, lon, pointName, travelMode);
             if (link == null) {
                 continue;
             }

@@ -471,4 +471,9 @@ Si Apple a simplement refusé la requête, il vaut mieux attendre et réessayer.
     <string name="all_tags">Toutes les balises</string>
     <string name="collapse">Réduire</string>
     <string name="tag_count">%1$d balises</string>
+    <string name="choose_travel_mode">Comment souhaitez-vous vous déplacer ?</string>
+    <string name="travel_mode_driving">Voiture</string>
+    <string name="travel_mode_walking">À pied</string>
+    <string name="travel_mode_cycling">Vélo</string>
+    <string name="travel_mode_transit">Transports en commun</string>
 </resources>

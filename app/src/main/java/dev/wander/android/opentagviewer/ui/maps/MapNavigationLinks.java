@@ -61,6 +61,23 @@ public final class MapNavigationLinks {
     private static final String TENCENT_REFERER = "OpenTagViewer";
 
     /**
+     * 出行方式。用户出发前自己选，而不是由我们替他决定"哪条路更合适"。
+     *
+     * <p>原来这里只有驾车：三家的链接都把方式写死（{@code mode=driving}、{@code type=drive}），
+     * 而高德的 {@code navi} 更是只做驾车导航。于是几百米外的标签也弹一条汽车路线——短距离下
+     * 步行的路往往根本不走机动车道，绕一大圈还进不了小区。
+     *
+     * <p>不按距离自动猜：几百米内也可能要开车（带着东西、下大雨），跨城也可能要坐高铁。让用户
+     * 点一下，比让他"猜不透为什么这次给了步行"要好。
+     */
+    public enum TravelMode {
+        DRIVING,
+        WALKING,
+        CYCLING,
+        TRANSIT
+    }
+
+    /**
      * 这个包名对应的导航链接，没有专属协议时返回 null（调用方改用 {@link #generic}）。
      *
      * @param pointName 目的地名称，显示在地图 App 的导航页上；可以为 null
@@ -70,40 +87,94 @@ public final class MapNavigationLinks {
                                     final double latitudeWgs84,
                                     final double longitudeWgs84,
                                     @Nullable final String pointName) {
+        return forPackage(packageName, latitudeWgs84, longitudeWgs84, pointName, TravelMode.DRIVING);
+    }
+
+    /**
+     * 同上，但带上用户选的出行方式。
+     *
+     * @param travelMode 出行方式；null 按驾车处理
+     */
+    @Nullable
+    public static String forPackage(final String packageName,
+                                    final double latitudeWgs84,
+                                    final double longitudeWgs84,
+                                    @Nullable final String pointName,
+                                    @Nullable final TravelMode travelMode) {
+        final TravelMode mode = travelMode == null ? TravelMode.DRIVING : travelMode;
         if (PACKAGE_AMAP.equals(packageName)) {
-            return amap(latitudeWgs84, longitudeWgs84, pointName);
+            return amap(latitudeWgs84, longitudeWgs84, pointName, mode);
         }
         if (PACKAGE_BAIDU.equals(packageName)) {
-            return baidu(latitudeWgs84, longitudeWgs84, pointName);
+            return baidu(latitudeWgs84, longitudeWgs84, pointName, mode);
         }
         if (PACKAGE_TENCENT.equals(packageName)) {
-            return tencent(latitudeWgs84, longitudeWgs84, pointName);
+            return tencent(latitudeWgs84, longitudeWgs84, pointName, mode);
         }
         return null;
     }
 
     /**
-     * 高德：{@code androidamap://navi}。
+     * 高德。
+     *
+     * <p><b>驾车走 {@code navi}，其余三种走 {@code route}。</b> {@code navi} 只做驾车导航，
+     * 而且一进去就开始播报，是"我现在就要走"的入口；步行/骑行/公交没有导航态可进，只能给
+     * {@code route} 让它先做路径规划。{@code t} 是高德的方式编号：0 驾车、1 公交、2 步行、
+     * 3 骑行。
      *
      * <p>{@code dev=1} 是关键——文档写的是"lat 和 lon 还没有国测加密，需要加密"，也就是
      * 接受 WGS-84 由它自己转 GCJ-02。传 {@code dev=0} 则要求我们先把坐标转好，传错就是
-     * 几百米的偏差。
+     * 几百米的偏差。两条 scheme 都带这个参数。
      *
      * <p>不带 {@code style}：Android 版 8.2.6 起该参数被忽略，以用户本地偏好为准，
      * 传了也只会让人以为生效了。
+     *
+     * <p>也不传 {@code slat}/{@code slon}：起点就是手机当前位置，和腾讯那边
+     * {@code fromcoord=CurrentLocation} 同一个道理——我们没有定位权限时也不该假装知道
+     * 用户在哪儿。高德在这两个参数缺失时用自己拿到的定位。
      */
-    static String amap(final double lat, final double lon, @Nullable final String pointName) {
-        final StringBuilder uri = new StringBuilder("androidamap://navi?sourceApplication=")
+    static String amap(final double lat, final double lon, @Nullable final String pointName,
+                       final TravelMode mode) {
+        if (mode == TravelMode.DRIVING) {
+            final StringBuilder uri = new StringBuilder("androidamap://navi?sourceApplication=")
+                    .append(SOURCE_APPLICATION)
+                    .append("&lat=").append(format(lat))
+                    .append("&lon=").append(format(lon))
+                    .append("&dev=1");
+            if (isUsableName(pointName)) {
+                uri.append("&poiname=").append(encode(pointName));
+                // dev=0 时 poiname 才保证被当作目的地名称用；dev=1 下它只是标注。
+                // 两者都带上，高德自己决定用哪个。
+            }
+            return uri.toString();
+        }
+
+        // 公交在 route 下叫 t=1，和"步行 t=2"是同一套编号，不是另一条 scheme。
+        final StringBuilder uri = new StringBuilder("androidamap://route?sourceApplication=")
                 .append(SOURCE_APPLICATION)
-                .append("&lat=").append(format(lat))
-                .append("&lon=").append(format(lon))
-                .append("&dev=1");
+                .append("&dlat=").append(format(lat))
+                .append("&dlon=").append(format(lon))
+                .append("&dev=1")
+                .append("&t=").append(amapRouteType(mode));
         if (isUsableName(pointName)) {
-            uri.append("&poiname=").append(encode(pointName));
-            // dev=0 时 poiname 才保证被当作目的地名称用；dev=1 下它只是标注。
-            // 两者都带上，高德自己决定用哪个。
+            uri.append("&dname=").append(encode(pointName));
         }
         return uri.toString();
+    }
+
+    /** 高德 {@code route} 的 {@code t}：0 驾车、1 公交、2 步行、3 骑行。 */
+    private static int amapRouteType(final TravelMode mode) {
+        switch (mode) {
+            case TRANSIT:
+                return 1;
+            case WALKING:
+                return 2;
+            case CYCLING:
+                return 3;
+            case DRIVING:
+            default:
+                return 0;
+        }
     }
 
     /**
@@ -111,13 +182,15 @@ public final class MapNavigationLinks {
      *
      * <p>用 {@code direction} 而不是 {@code navi}：{@code navi} 的一批参数（含
      * {@code navi/common}）依赖 9.5 以上版本，而 {@code direction} 是百度文档里最稳定、
-     * 覆盖版本最广的驾车路线入口，进来就是路线规划页，点一下开始导航。
+     * 覆盖版本最广的路线入口，进来就是路线规划页，点一下开始导航。四种方式都在这个入口上，
+     * 只换 {@code mode}：driving / walking / riding / transit。
      *
      * <p><b>整串 destination 只编码一次。</b> 名字里的中文如果先单独编码、再随整串编码，
      * 就会变成 {@code %25E8...} —— 百度那边解出来的是一串百分号，导航页的目的地名是乱码。
      * 所以这里把"原始"的 destination 拼好，最后统一编码一次。
      */
-    static String baidu(final double lat, final double lon, @Nullable final String pointName) {
+    static String baidu(final double lat, final double lon, @Nullable final String pointName,
+                        final TravelMode mode) {
         final StringBuilder destination = new StringBuilder("latlng:")
                 .append(format(lat)).append(',').append(format(lon));
         if (isUsableName(pointName)) {
@@ -128,9 +201,24 @@ public final class MapNavigationLinks {
         return new StringBuilder("baidumap://map/direction?destination=")
                 .append(encode(destination.toString()))
                 .append("&coord_type=wgs84")
-                .append("&mode=driving")
+                .append("&mode=").append(baiduMode(mode))
                 .append("&src=").append(BAIDU_SRC)
                 .toString();
+    }
+
+    /** 百度 {@code mode} 的取值，四种方式一一对应，没有需要近似的。 */
+    private static String baiduMode(final TravelMode mode) {
+        switch (mode) {
+            case WALKING:
+                return "walking";
+            case CYCLING:
+                return "riding";
+            case TRANSIT:
+                return "transit";
+            case DRIVING:
+            default:
+                return "driving";
+        }
     }
 
     /**
@@ -139,6 +227,11 @@ public final class MapNavigationLinks {
      * <p>{@code fromcoord=CurrentLocation} 让腾讯用自己的定位做起点，我们不必请求定位权限
      * 也不该假装知道用户在哪儿。
      *
+     * <p><b>骑行按步行给。</b> 腾讯 Android 文档里 {@code type} 只有 drive / bus / walk 三个
+     * 值，写了 {@code ride} 属于赌一个没写在文档里的行为：赌对了没人知道，赌错了用户看到的是
+     * "路线规划失败"。步行路线对自行车是次优解（不能上高架、可能绕开非机动车道），但目的地、
+     * 距离和方向都对，属于"能用"，比一个空页面好。
+     *
      * <p><b>坐标按 WGS-84 原样传。</b> 腾讯的 Android 文档里 {@code routeplan} 的参数表没有
      * {@code coord_type}，只有 web 版的 {@code routeplan} 才有（取值 {@code 1} 表示 GPS）。
      * 手机端既然没声明这个参数，我们就不能假设它默认按 GCJ-02 解——先在这里转一道 GCJ-02
@@ -146,8 +239,10 @@ public final class MapNavigationLinks {
      * 它默认行为的选择。若实测发现腾讯端偏移，再补 {@code coord_type=1} 即可，改动只在
      * 这一处。
      */
-    static String tencent(final double lat, final double lon, @Nullable final String pointName) {
-        final StringBuilder uri = new StringBuilder("qqmap://map/routeplan?type=drive")
+    static String tencent(final double lat, final double lon, @Nullable final String pointName,
+                          final TravelMode mode) {
+        final StringBuilder uri = new StringBuilder("qqmap://map/routeplan?type=")
+                .append(tencentType(mode))
                 .append("&fromcoord=CurrentLocation")
                 .append("&tocoord=").append(format(lat)).append(',').append(format(lon))
                 .append("&referer=").append(TENCENT_REFERER);
@@ -155,6 +250,20 @@ public final class MapNavigationLinks {
             uri.append("&to=").append(encode(pointName));
         }
         return uri.toString();
+    }
+
+    /** 腾讯 {@code type} 只有 drive / bus / walk；骑行借用 walk，理由见上面的注释。 */
+    private static String tencentType(final TravelMode mode) {
+        switch (mode) {
+            case WALKING:
+            case CYCLING:
+                return "walk";
+            case TRANSIT:
+                return "bus";
+            case DRIVING:
+            default:
+                return "drive";
+        }
     }
 
     /**
